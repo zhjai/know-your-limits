@@ -176,6 +176,38 @@ cp -R know-your-limits/skills/know-your-limits "${CODEX_HOME:-$HOME/.codex}/skil
 
 Restart or reload your agent session so it rescans skills. Exact paths vary by host; prefer your agent's official docs when they differ.
 
+## Using it — how to trigger
+
+Unlike a one-shot review skill, `know-your-limits` is a **standing policy**: you turn it on once, and then it mostly runs itself. There's no command to type per bug.
+
+**1. Turn it on for the run** — set the tier and start your task with one line:
+
+```bash
+export KYL_WORKER_TIER=cheap
+```
+
+```text
+You're running as a cheap model on a long task. Use know-your-limits:
+escalate the hard parts to a senior instead of guessing.
+```
+
+That single instruction (or just the presence of a cheap worker on a long task) makes the agent load the skill. From then on:
+
+- The **hook** counts tripwires from real events and nudges escalation the moment one trips (STALL after 2 identical failures, OSCILLATION after 3 edits, etc.) — you don't ask for this.
+- The **skill** fires the mandatory reviews on its own: plan review when an L2/L3 task starts, a guard before any irreversible action, a review before "done".
+
+**2. Or just describe the work** — the skill self-activates on natural phrasing when a cheap worker is involved:
+
+```text
+This refactor is big and I'm on a budget model — phone a senior when you get stuck, don't burn hours guessing.
+```
+
+```text
+Run this migration on the cheap model, but know your limits: get a senior review before anything irreversible.
+```
+
+**What you'll see:** when a tripwire trips, the worker stops, sends a minimal evidence packet to the senior via agent-arena, and comes back with a compact `status / diagnosis / next_actions / checks / risks` reply it acts on — exactly the [concrete run](#what-it-does--a-concrete-run) above. On first use in a project it also asks you two quick setup questions (see below).
+
 ## Configuration — soft initialization
 
 On **first use in a project**, the agent asks you a couple of questions and writes `state/know-your-limits/config.yaml` from your answers — no script, no form:
