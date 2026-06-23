@@ -215,7 +215,7 @@ kyl this migration: run it on the cheap model, but get a senior review before an
 On **first use in a project**, the agent asks you a couple of questions and writes `state/know-your-limits/config.yaml` from your answers — no script, no form:
 
 1. **Worker tier** *(skipped if `KYL_WORKER_TIER` is already set)* — are you running a cheap/small model as the primary worker?
-2. **Senior model** *(always asked)* — which model to escalate hard decisions to? (default: cross-vendor — Codex workers → Claude, Claude workers → Codex)
+2. **Senior model** *(always asked)* — when the worker gets stuck, which **strong** model should it ask for help (e.g. Claude Opus, GPT-5/Codex)? Say **`auto`** to let it pick a different model family than your worker — a different family catches mistakes your own model is blind to (Codex worker → Claude, Claude worker → Codex).
 3. **Feishu notifications** *(only if `experiment-grill-feishu` is detected)* — want completion + escalation pings?
 
 Then it auto-checks the hook wiring and offers to add it if missing. Budget limits default to `L1:1 / L2:3 / L3:4`. Edit `config.yaml` any time — see [`examples/config.example.yaml`](examples/config.example.yaml) for all options, including per-trigger arena mode and participant depth.

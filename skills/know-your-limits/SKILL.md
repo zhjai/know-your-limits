@@ -51,7 +51,7 @@ On **first use in a project**, check if `state/know-your-limits/config.yaml` exi
    "Are you running a cheap/small model (Haiku, gpt5.4-mini, GLM-4.7-Flash, deepseek-v4-flash, etc.) as the primary worker on long tasks? You should also export `KYL_WORKER_TIER=cheap` in your shell — that's what the hook uses to send you reminders."
 
 2. **Senior model** *(always ask)*
-   "Which model should I escalate hard decisions to? (default: cross-vendor — Codex workers → Claude, Claude workers → Codex)"
+   "When the cheap worker gets stuck, which **strong** model should it ask for help — e.g. Claude Opus, or GPT-5/Codex? You can just say **'auto'** and I'll pick a different model family than your worker (a different family catches mistakes your own model is blind to — Codex worker → Claude, Claude worker → Codex)."
 
 3. **Feishu notifications** *(only if `experiment-grill-feishu` skill is detected as installed)*
    "experiment-grill-feishu is installed. Do you want task completion and escalation notifications sent to Feishu?"
