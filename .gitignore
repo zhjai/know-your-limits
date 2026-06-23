@@ -1,3 +1,11 @@
+# Runtime state (project-specific, not committed)
+state/
+
+# Python cache
 __pycache__/
 *.pyc
-state/
+
+# Editor
+.vscode/
+.idea/
+*.swp

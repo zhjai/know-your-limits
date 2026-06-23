@@ -1,0 +1,37 @@
+# know-your-limits configuration
+# Created automatically on first use
+
+worker:
+  # Tier: cheap | expensive | auto-detect
+  tier: auto-detect
+  
+escalation:
+  # Senior model to escalate to (or auto-detect for cross-vendor heterogeneity)
+  senior_model: auto-detect  # auto | claude-opus | codex-5.5 | glm-4-plus
+  
+  # Fallback order when escalation fails
+  fallback_order:
+    - senior        # Try senior model first
+    - human_async   # If senior fails, async human via grill-feishu
+    - human_sync    # If no grill-feishu, synchronous block
+  
+  # Arena mode preferences (which arena mode to use per trigger)
+  mode_preferences:
+    PLAN_REVIEW: implementation_plan_review
+    STALL_RESCUE: bug_root_cause_arena
+    OSCILLATION: code_review_arena
+    SCOPE_DRIFT: quick_panel
+    CHECKPOINT_DEBT: quick_panel
+    PRE_DONE_REVIEW: code_review_arena
+
+notifications:
+  # Task completion notifications (v0.2.0: handled by grilld)
+  completion:
+    enabled: false
+    provider: grilld
+
+limits:
+  # Budget per task class
+  max_l1_calls: 1   # L1: ordinary multi-step
+  max_l2_calls: 3   # L2: long-running (reserve 1 for final review)
+  max_l3_calls: 4   # L3: high-risk (reserve 1 for plan + 1 for final)

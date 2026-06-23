@@ -40,6 +40,21 @@ Without the hook it still runs in a **degraded mode** (the worker self-reports a
 npx skills add zhjai/know-your-limits -g -a claude-code   # or -a codex, … any host
 ```
 
+**Health check (optional):** verify your setup
+
+```bash
+cd <know-your-limits-repo>
+python3 scripts/kyl_doctor.py
+```
+
+This checks:
+- ✅ Skills installed (know-your-limits, agent-arena required; grill-feishu optional)
+- ✅ Hook wired (for reliable reactive tripwires)
+- ✅ `KYL_WORKER_TIER` set (for cheap workers)
+- ℹ️ Config exists (auto-created on first escalation)
+
+**Config:** On first escalation, `state/know-your-limits/config.yaml` is auto-created with defaults (worker tier, senior model, budget limits). Edit to customize. Run `python3 scripts/kyl_init_config.py project` to create it manually.
+
 Then, for the reliable setup, wire the hook (merge the example into your host's hook config and fix the path):
 - Claude Code: [`integrations/claude-code/settings.hooks.json`](integrations/claude-code/settings.hooks.json)
 - Codex: [`integrations/codex/hooks.json`](integrations/codex/hooks.json)

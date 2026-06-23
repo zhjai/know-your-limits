@@ -41,6 +41,21 @@ Before adopting this policy, check it actually saves money:
   needs shell + the senior's CLI + credentials). If it can't, this skill degrades to "flag the moment
   and ask the human" — say so, don't pretend an escalation happened.
 
+### 0.5. Lazy config initialization (on first use)
+On the **first escalation** in a project, auto-create `state/know-your-limits/config.yaml` with defaults:
+```bash
+python3 <know-your-limits>/scripts/kyl_init_config.py project
+```
+This creates a project-level config with:
+- `worker.tier: auto-detect` (or set `KYL_WORKER_TIER=cheap` env var to override)
+- `escalation.senior_model: auto-detect` (cross-vendor by default: Codex → Claude, Claude → Codex)
+- Budget limits (L1: 1, L2: 3, L3: 4)
+- Arena mode preferences per trigger
+
+**User can edit** `state/know-your-limits/config.yaml` to customize. The file is **version-controlled** (project-specific settings). For user-level defaults, create `~/.kyl/config.yaml` (project config takes precedence).
+
+**Health check:** run `python3 <know-your-limits>/scripts/kyl_doctor.py` to verify deps (agent-arena, optional grill-feishu, hook wired, env vars).
+
 ### 1. Classify the task — ONCE per top-level goal (sets the budget + which tripwires are mandatory)
 **Classify the top-level goal the user accepted, not each subtask.** One classification, one budget,
 one plan review, one final review **per goal**. Subtasks *inherit* the goal's class and share its
