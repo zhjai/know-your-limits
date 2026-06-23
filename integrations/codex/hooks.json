@@ -1,6 +1,9 @@
 {
-  "//": "Example Codex hooks for know-your-limits (also expressible as [hooks] tables in ~/.codex/config.toml). Fix the path to kyl_hook.py. TRIGGER-ONLY, same discipline as the Claude version. NOTE: Codex PostToolUse exposes tool_response but not a numeric exit code, so STALL detection is best-effort on Codex (it matches error/traceback text in the output). It never makes the senior call, never blocks, never marks done.",
+  "//": "Example Codex hooks for know-your-limits (also expressible as [hooks] tables in ~/.codex/config.toml). Fix the path to kyl_hook.py. TRIGGER-ONLY, same discipline as the Claude version. NOTE: Codex PostToolUse exposes tool_response but not a numeric exit code, so STALL detection is best-effort on Codex (it matches error/traceback text in the output). Set KYL_WORKER_TIER=cheap for cheap workers. It never makes the senior call, never blocks, never marks done.",
   "hooks": {
+    "PreToolUse": [
+      { "hooks": [ { "type": "command", "command": "python3 <kyl>/integrations/hooks/kyl_hook.py" } ] }
+    ],
     "PostToolUse": [
       { "hooks": [ { "type": "command", "command": "python3 <kyl>/integrations/hooks/kyl_hook.py" } ] }
     ],

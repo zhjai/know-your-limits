@@ -255,6 +255,26 @@ class KylHook(unittest.TestCase):
         self.assertIn("You are a cheap worker", ctx)
         self.assertIn("KYL_WORKER_TIER=cheap", ctx)
 
+    def test_codex_apply_patch_path_extraction(self):
+        # Codex apply_patch puts path in command field
+        ledger = os.path.join(tempfile.mkdtemp(), "l.json")
+        patch1 = {"hook_event_name": "PostToolUse", "tool_name": "apply_patch",
+                  "tool_input": {"command": "apply_patch src/model.py <<EOF\n..."}, "tool_exit_code": 0,
+                  "tool_response": "edited"}
+
+        # First edit
+        _, c1 = run(patch1, ledger)
+        self.assertNotIn("OSCILLATION", c1)
+
+        # Second edit
+        _, c2 = run(patch1, ledger)
+        self.assertNotIn("OSCILLATION", c2)
+
+        # Third edit - should trigger oscillation
+        _, c3 = run(patch1, ledger)
+        self.assertIn("OSCILLATION", c3)
+        self.assertIn("src/model.py", c3)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

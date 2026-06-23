@@ -135,10 +135,20 @@ def _touched_path(d):
     if name and not any(m in name for m in _MUTATING_TOOLS):
         return ""
     ti = d.get("tool_input") or {}
+    # Standard path fields
     for k in ("file_path", "path", "notebook_path"):
         v = ti.get(k)
         if isinstance(v, str) and v:
             return v
+    # Codex apply_patch: path is in command field (e.g., "apply_patch src/model.py <<EOF...")
+    if "apply_patch" in name or "patch" in name:
+        cmd = ti.get("command", "")
+        if isinstance(cmd, str) and cmd:
+            # Extract first path-like token after apply_patch
+            tokens = cmd.split()
+            for tok in tokens[1:]:  # skip "apply_patch" itself
+                if "/" in tok or tok.endswith(".py") or tok.endswith(".js"):
+                    return tok
     return ""
 
 

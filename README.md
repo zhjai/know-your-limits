@@ -19,7 +19,7 @@ So escalation fires on **objective, observable events** instead:
 | **PRE_DONE_REVIEW** (mandatory) | about to call it done on a large/risky diff | a real review before "done" |
 | **STALL_RESCUE** | the same error survives 2 different fix attempts | stop guessing, get a root-cause |
 | **OSCILLATION** | same file edited 3× with no passing check | the approach is wrong, not the code |
-| **SCOPE_DRIFT** | touched 2+ unplanned modules before any check passes | confirm scope before spreading |
+| **SCOPE_DRIFT** | touched ≥3 unplanned modules (default) before any check passes | confirm scope before spreading |
 | **CHECKPOINT_DEBT** | ≥40 actions since phase start / last checkpoint, no checkpoint passed | senior audit to confirm still on track |
 | **GATE_BLOCK** | an [`agent-completion-gate`](https://github.com/zhjai/agent-completion-gate) check returns BLOCKED | fix the real cause |
 
@@ -60,11 +60,11 @@ grill-run --tier cheap -- codex exec "..."
 ```
 
 This enables:
-- **Mandatory PLAN_REVIEW enforcement** (hook forces it at PreToolUse if cheap worker on L2/L3 starts editing without review)
+- **Mandatory PLAN_REVIEW nudging** (hook issues strong nudge at PreToolUse if cheap worker on L2/L3 starts editing without review; full enforcement in v0.2.0)
 - **Periodic reminders** (every 20 actions: light nudge to use know-your-limits)
 - **PreCompact reminder** (before context compaction, reminds "you are cheap")
 
-Without `KYL_WORKER_TIER`, the hook still counts tripwires (STALL/OSCILLATION/etc.), but won't enforce mandatory reviews or remind the model.
+Without `KYL_WORKER_TIER`, the hook still counts tripwires (STALL/OSCILLATION/etc.), but won't nudge mandatory reviews or remind the model.
 
 ## Budget — escalation is a scarce tool, not the default
 
@@ -121,7 +121,7 @@ We surveyed model routing / fallback / escalation systems to understand what exi
 **Objective tripwires instead of self-assessment.** The core insight: an overconfident or cheap model won't notice it's stuck (asking it "are you unsure?" is self-referential). So escalation fires on **counted, observable events**:
 - **STALL:** same error fingerprint survives 2 fix attempts (the hook counts this, not the model)
 - **OSCILLATION:** same file edited 3× with no passing check
-- **SCOPE_DRIFT:** touched 2+ unplanned modules before any check passes
+- **SCOPE_DRIFT:** touched ≥3 unplanned modules (default) before any check passes
 - **CHECKPOINT_DEBT:** ≥40 actions with no checkpoint passed (two-stage: 20 = nudge, 40 = audit)
 - **Mandatory:** plan review at start / irreversible-action guard / pre-done review (fire regardless of model confidence)
 

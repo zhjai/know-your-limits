@@ -1,6 +1,9 @@
 {
-  "//": "Example Claude Code hooks for know-your-limits. Merge into .claude/settings.json and fix the path to kyl_hook.py. TRIGGER-ONLY: it keeps an escalation ledger and nudges the worker to escalate via agent-arena when an objective tripwire (stall / oscillation / scope drift / progress debt) trips. It NEVER makes the senior call, never blocks, never marks done. The MANDATORY tripwires (plan review at start, irreversible-action guard, pre-done review) are the skill's job, not the hook's. Set KYL_LEDGER / KYL_STALL_N / KYL_OSC_M / KYL_SCOPE_K / KYL_ACTIONS_A to tune.",
+  "//": "Example Claude Code hooks for know-your-limits. Merge into .claude/settings.json and fix the path to kyl_hook.py. TRIGGER-ONLY: it keeps an escalation ledger and nudges the worker to escalate via agent-arena when an objective tripwire (stall / oscillation / scope drift / progress debt) trips. It NEVER makes the senior call, never blocks, never marks done. The MANDATORY tripwires (plan review at start, irreversible-action guard, pre-done review) are the skill's job, not the hook's. Set KYL_LEDGER / KYL_WORKER_TIER / KYL_STALL_N / KYL_OSC_M / KYL_SCOPE_K / KYL_ACTIONS_A to tune.",
   "hooks": {
+    "PreToolUse": [
+      { "matcher": "", "hooks": [ { "type": "command", "command": "python3 <kyl>/integrations/hooks/kyl_hook.py" } ] }
+    ],
     "PostToolUse": [
       { "matcher": "", "hooks": [ { "type": "command", "command": "python3 <kyl>/integrations/hooks/kyl_hook.py" } ] }
     ],

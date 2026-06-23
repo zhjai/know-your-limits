@@ -73,7 +73,7 @@ escalation keys off. Incidental replanning or a new subtask does **not** create 
 - **STALL_RESCUE** — the **same error fingerprint** survives **2 materially different** fix attempts,
   or 3 non-improving reruns. (The hook counts this for you; see Reliability.)
 - **OSCILLATION** — the same file/function is materially edited 3+ times with no validation improvement.
-- **SCOPE_DRIFT** — you've touched 2+ modules you didn't plan to, before the first acceptance check passes.
+- **SCOPE_DRIFT** — you've touched ≥3 modules (default threshold) you didn't plan to, before the first acceptance check passes.
 - **CHECKPOINT_DEBT** — ≥40 substantive tool actions since phase start or last checkpoint, with no
   plan-defined checkpoint passed yet. Two-stage: 20 actions = local nudge (free), 40 actions = senior
   audit (consumes audit budget). Only fires for L2/L3 tasks with plan-defined checkpoints.
@@ -126,7 +126,7 @@ output to a file and read back only the digest).
 and surface it to the user with the evidence. Looping a senior on an under-specified or judgment-call
 problem just burns money.
 
-**For long unattended tasks: integrate with experiment-grill-feishu**
+**For long unattended tasks: integrate with experiment-grill-feishu** *(roadmap v0.2.0)*
 
 If the senior review says `HUMAN_REQUIRED` (needs user judgment) and you're running a long task where
 the user may not be at the keyboard:
@@ -210,8 +210,9 @@ grill-run --tier cheap -- codex exec "..."
 ```
 
 The hook reads `KYL_WORKER_TIER` and:
-1. **Enforces mandatory PLAN_REVIEW** (PreToolUse): if cheap worker on L2/L3 task starts editing without
-   plan review, hook forces a nudge — no longer relies on model remembering to call the skill.
+1. **Nudges mandatory PLAN_REVIEW** (PreToolUse): if cheap worker on L2/L3 task starts editing without
+   plan review, hook issues a strong nudge — no longer relies on model remembering to call the skill.
+   (Note: the hook never blocks; it emits context. Full enforcement comes in v0.2.0's guarded launcher.)
 2. **Periodic reminder** (every 20 actions): light nudge to use know-your-limits.
 3. **PreCompact reminder**: tells the model "you are cheap" before compaction, reducing forgetting.
 
@@ -221,7 +222,7 @@ The hook reads `KYL_WORKER_TIER` and:
 echo '{"task_class": "L2", "plan_reviewed": false, "actions": 0}' > state/know-your-limits/ledger.json
 ```
 
-The hook will force PLAN_REVIEW before the first Edit/Write if `plan_reviewed` is false.
+The hook will nudge PLAN_REVIEW before the first Edit/Write if `plan_reviewed` is false.
 
 ## Do not
 - **Do not gate escalation on the worker's self-assessed confidence** — use the objective tripwires.
