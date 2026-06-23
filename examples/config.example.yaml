@@ -15,20 +15,50 @@ escalation:
     - human_async   # If senior fails, async human via grill-feishu
     - human_sync    # If no grill-feishu, synchronous block
   
-  # Arena mode preferences (which arena mode to use per trigger)
+  # Arena mode preferences: adaptive by default (not all escalations need two agents)
+  # Judgment calls (PLAN_REVIEW, IRREVERSIBLE_GUARD, PRE_DONE_REVIEW, scope) → heterogeneous
+  # Bounded diagnosis (STALL_RESCUE, OSCILLATION) → single senior (solo_red_team)
+  #
+  # depth: heterogeneous | single_senior
+  # Override any trigger here; defaults shown below
   mode_preferences:
-    PLAN_REVIEW: implementation_plan_review
-    STALL_RESCUE: bug_root_cause_arena
-    OSCILLATION: code_review_arena
-    SCOPE_DRIFT: quick_panel
-    CHECKPOINT_DEBT: quick_panel
-    PRE_DONE_REVIEW: code_review_arena
+    PLAN_REVIEW:
+      mode: implementation_plan_review
+      depth: heterogeneous
+      # heterogeneous default; if forced to single: Claude (planning/long-context reasoning)
+    IRREVERSIBLE_GUARD:
+      mode: full_arena
+      depth: heterogeneous
+      # heterogeneous default; if forced to single: Claude
+    PRE_DONE_REVIEW:
+      mode: code_review_arena
+      depth: heterogeneous
+      # heterogeneous default; if forced to single: Claude
+    STALL_RESCUE:
+      mode: solo_red_team
+      depth: single_senior
+      senior_model: gpt  # GPT/Codex first for bug diagnosis (tool execution, concrete artifacts)
+    OSCILLATION:
+      mode: solo_red_team
+      depth: single_senior
+      senior_model: gpt  # same reason
+    SCOPE_DRIFT:
+      mode: quick_panel
+      depth: heterogeneous
+    CHECKPOINT_DEBT:
+      mode: quick_panel
+      depth: heterogeneous
+  # Global override (uncomment to force all escalations to one depth):
+  # default_depth: heterogeneous   # always two agents (max scrutiny)
+  # default_depth: single_senior   # always one agent (max speed/cost)
 
 notifications:
-  # Task completion notifications (v0.2.0: handled by grilld)
+  # Task completion notification — sent when done is declared (fire-and-forget)
+  # Escalation questions — sent when HUMAN_REQUIRED (awaits reply)
+  # Both use experiment-grill-feishu if installed
   completion:
-    enabled: false
-    provider: grilld
+    enabled: false         # set true to get a Feishu ping when the task finishes
+    provider: experiment-grill-feishu
 
 limits:
   # Budget per task class

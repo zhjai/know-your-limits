@@ -51,9 +51,15 @@ This checks:
 - ✅ Skills installed (know-your-limits, agent-arena required; grill-feishu optional)
 - ✅ Hook wired (for reliable reactive tripwires)
 - ✅ `KYL_WORKER_TIER` set (for cheap workers)
-- ℹ️ Config exists (auto-created on first escalation)
+- ℹ️ Config exists (created on first use via soft init)
 
-**Config:** On first escalation, `state/know-your-limits/config.yaml` is auto-created with defaults (worker tier, senior model, budget limits). Edit to customize. Run `python3 scripts/kyl_init_config.py project` to create it manually.
+**Config (soft init):** On first use in a project, the agent will ask you three questions and write `state/know-your-limits/config.yaml` from your answers — no script needed:
+
+1. Are you running a cheap/small model as the primary worker?
+2. Which senior model to escalate to?
+3. Do you want task completion and escalation notifications via Feishu?
+
+Edit `state/know-your-limits/config.yaml` at any time to customize. See [`examples/config.example.yaml`](examples/config.example.yaml) for all options.
 
 Then, for the reliable setup, wire the hook (merge the example into your host's hook config and fix the path):
 - Claude Code: [`integrations/claude-code/settings.hooks.json`](integrations/claude-code/settings.hooks.json)

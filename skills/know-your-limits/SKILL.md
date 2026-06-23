@@ -41,20 +41,25 @@ Before adopting this policy, check it actually saves money:
   needs shell + the senior's CLI + credentials). If it can't, this skill degrades to "flag the moment
   and ask the human" — say so, don't pretend an escalation happened.
 
-### 0.5. Lazy config initialization (on first use)
-On the **first escalation** in a project, auto-create `state/know-your-limits/config.yaml` with defaults:
-```bash
-python3 <know-your-limits>/scripts/kyl_init_config.py project
-```
-This creates a project-level config with:
-- `worker.tier: auto-detect` (or set `KYL_WORKER_TIER=cheap` env var to override)
-- `escalation.senior_model: auto-detect` (cross-vendor by default: Codex → Claude, Claude → Codex)
-- Budget limits (L1: 1, L2: 3, L3: 4)
-- Arena mode preferences per trigger
+### 0.5. Soft initialization (on first use in a project)
+On **first use in a project**, check if `state/know-your-limits/config.yaml` exists. If not, ask the user these questions directly — no script, no form:
 
-**User can edit** `state/know-your-limits/config.yaml` to customize. The file is **version-controlled** (project-specific settings). For user-level defaults, create `~/.kyl/config.yaml` (project config takes precedence).
+1. **Worker tier** *(skip if `KYL_WORKER_TIER` already set in the environment)*
+   "Are you running a cheap/small model (Haiku, GPT-mini, GLM, etc.) as the primary worker on long tasks? You should also export `KYL_WORKER_TIER=cheap` in your shell — that's what the hook uses to send you reminders."
 
-**Health check:** run `python3 <know-your-limits>/scripts/kyl_doctor.py` to verify deps (agent-arena, optional grill-feishu, hook wired, env vars).
+2. **Senior model** *(always ask)*
+   "Which model should I escalate hard decisions to? (default: cross-vendor — Codex workers → Claude, Claude workers → Codex)"
+
+3. **Feishu notifications** *(only if `experiment-grill-feishu` skill is detected as installed)*
+   "experiment-grill-feishu is installed. Do you want task completion and escalation notifications sent to Feishu?"
+
+Then create `state/know-your-limits/config.yaml` from their answers. If the user skips or is unsure, use auto-detect defaults. The file is **project-level** and version-controlled; the user can edit it at any time.
+
+After writing the config, **auto-check hook wiring**: if the hook is not found in the host's hook config, offer to add it with a brief note — "The hook tracks stall/oscillation/scope counters outside the model; without it, reactive tripwires run in degraded mode." This is a conditional offer, not a question.
+
+Budget limits default to `L1:1 / L2:3 / L3:4` — mention in the post-init summary that these are editable in `config.yaml` once the user has seen a few escalations.
+
+> For a bulk dependency check (agent-arena, hook wired, env vars), the optional utility `scripts/kyl_doctor.py` is available, but it is not part of the initialization flow.
 
 ### 1. Classify the task — ONCE per top-level goal (sets the budget + which tripwires are mandatory)
 **Classify the top-level goal the user accepted, not each subtask.** One classification, one budget,
@@ -95,8 +100,20 @@ escalation keys off. Incidental replanning or a new subtask does **not** create 
 - **GATE_BLOCK** — an [`agent-completion-gate`](https://github.com/zhjai/agent-completion-gate) check
   returns BLOCKED → escalate to fix the real cause, don't loosen the check.
 
-Map each trigger to an agent-arena mode: plan → `implementation_plan_review`; stall → `bug_root_cause_arena`;
-audit/scope → `quick_panel`; pre-done → `code_review_arena`.
+Map each trigger to an agent-arena mode and participant depth (adaptive default — not all escalations need two agents).
+When calling a single senior, model choice follows task nature: **GPT/Codex for bug diagnosis** (concrete artifacts, tool execution); **Claude for planning and review** (judgment, long-context reasoning):
+
+| Trigger | Mode | Participants | Default single senior | Why |
+|---------|------|--------------|----------------------|-----|
+| PLAN_REVIEW | `implementation_plan_review` | heterogeneous | — | Judgment call — framing blind spots matter |
+| IRREVERSIBLE_GUARD | `full_arena` | heterogeneous | — | High stakes, irreversible — independent views catch assumptions |
+| PRE_DONE_REVIEW | `code_review_arena` | heterogeneous | — | Judgment call on completeness |
+| STALL_RESCUE | `solo_red_team` | single senior | **GPT/Codex** | Bounded diagnosis with concrete artifacts — GPT stronger at code/tool execution |
+| OSCILLATION | `solo_red_team` | single senior | **GPT/Codex** | Concrete diagnosis, same reason |
+| SCOPE_DRIFT | `quick_panel` | heterogeneous | — | Scope calls are judgment; fast panel works |
+| CHECKPOINT_DEBT | `quick_panel` | heterogeneous | — | Progress audit; fast panel works |
+
+Override per-trigger in config under `escalation.mode_preferences`. The default senior model for each trigger can be overridden at init or in config.
 
 ### 3. Budget the senior calls (the whole point is saving money)
 The budget is **per top-level goal** (shared across all its subtasks), reserved up front; never let
@@ -179,15 +196,23 @@ timeout_min: 10
 # - No reply after 10 min → grill-feishu fallback: BLOCK (high-risk default)
 ```
 
-This closes the gap: "escalate to HUMAN" now has an async path for long tasks. The escalation chain
-becomes: **cheap worker → senior → human (with Feishu notification)**.
+### 7. On task completion — notify the user
+When the task is fully done (PRE_DONE_REVIEW passed → findings addressed → completion-gate cleared → "done" declared):
+
+If `notifications.completion.enabled: true` in config and `experiment-grill-feishu` is available:
+- Send a **completion notification** via Feishu: task summary, duration, key outcomes, any warnings or deferred items
+- This is **fire-and-forget** (no reply expected) — the user just gets told it's done
+
+This closes the loop for long unattended tasks: the same channel used for escalation questions is used for the final completion ping. The full notification flow:
+```
+escalation question  → grill-feishu (async, awaits reply)
+task done            → grill-feishu (fire-and-forget notification)
+```
 
 ## Composition (this skill owns *when*, not *how* or *done*)
 - **agent-arena** — the escalation *mechanism* (heterogeneous call, independent answers, dissent kept).
   This skill decides *when* to invoke it.
-- **experiment-grill-feishu** — async human escalation for long unattended tasks. When senior says
-  `HUMAN_REQUIRED`, use grill-feishu to notify user via Feishu and wait for reply (with risk-based
-  fallback if no reply). Completes the escalation chain: cheap → senior → human (async).
+- **experiment-grill-feishu** — async human communication for long unattended tasks. Two uses: (1) when senior says `HUMAN_REQUIRED`, send escalation question via Feishu and wait for reply (risk-based fallback if no reply); (2) when task is done, send a fire-and-forget completion notification. Completes the full loop: cheap → senior → human question → human notified when done.
 - **deliberative-analysis** — a *pre-escalation* local thinking aid: if the hard part is a bad framing /
   narrow option space, expand options first; escalate to a senior only if still stuck. It may precede a
   *reactive* escalation, but it **cannot replace or delay a mandatory** escalation (plan / irreversible /
