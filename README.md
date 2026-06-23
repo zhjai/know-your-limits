@@ -74,6 +74,57 @@ agent-lessonbook      — record policy misses (escalated too late/early; a thre
 
 This skill owns **when**. It never replaces the gate's authority over "done", and it routes *through* agent-arena rather than reimplementing cross-model calls.
 
+## How this compares to existing solutions
+
+We surveyed model routing / fallback / escalation systems to understand what exists and what's missing. **TL;DR: know-your-limits is the only system that detects "I'm stuck" at runtime using objective tripwires, rather than relying on the model's self-assessment or reacting passively to timeouts.**
+
+| Feature | LiteLLM | AutoGen | Swarm | FrugalGPT | know-your-limits |
+|---------|---------|---------|-------|-----------|------------------|
+| **Runtime stuck detection** | ❌ | ❌ | ❌ | ❌ | ✅ |
+| **Objective tripwires** (not model self-eval) | ❌ | ❌ | ❌ | ❌ | ✅ |
+| **Fine-grained failure modes** (stall/oscillation/scope) | ❌ | ❌ | ❌ | ❌ | ✅ |
+| **Hook maintains ledger** (model-external counting) | ❌ | ❌ | ❌ | ❌ | ✅ |
+| **Mandatory tripwires** (plan/irreversible/pre-done) | ❌ | ❌ | ❌ | ❌ | ✅ |
+| **Per-goal budget** | ✅ (partial) | ❌ | ❌ | ❌ | ✅ |
+| **Long-task specialized** | ❌ | ❌ | ❌ | ✅ (partial) | ✅ |
+
+### What exists
+
+- **LiteLLM:** Passive fallback (timeout / 429 / 5xx → retry → switch model). Production-grade cost tracking, but no "I'm about to get stuck" detection.
+- **AutoGen / Swarm:** Explicit orchestration (a coordinator routes tasks to specialist agents). No runtime self-awareness or automatic escalation.
+- **FrugalGPT (Stanford):** Static routing (offline-trained classifier: question features → model choice). 98% cost reduction, but not dynamic escalation (doesn't detect getting stuck mid-run).
+- **LLM confidence calibration research:** Self-assessed confidence has ~50% calibration error, especially for overconfident cheap models. This validates our "objective tripwires" design — asking "do you feel unsure?" is unreliable.
+
+### What's unique here
+
+**Objective tripwires instead of self-assessment.** The core insight: an overconfident or cheap model won't notice it's stuck (asking it "are you unsure?" is self-referential). So escalation fires on **counted, observable events**:
+- **STALL:** same error fingerprint survives 2 fix attempts (the hook counts this, not the model)
+- **OSCILLATION:** same file edited 3× with no passing check
+- **SCOPE_DRIFT:** touched 2+ unplanned modules before any check passes
+- **Mandatory:** plan review at start / irreversible-action guard / pre-done review (fire regardless of model confidence)
+
+The **hook keeps the ledger** outside the model's context (a cheap model forgets/mis-counts its own attempts across compaction). The **skill is the policy** (when to escalate), **agent-arena is the mechanism** (how to call the senior).
+
+### Lessons we borrowed
+
+- **LiteLLM's cost tracking:** per-user/project/goal token accounting. We added per-goal budget with reserved slots for mandatory reviews.
+- **FrugalGPT's tiering insight:** Not every task needs the strongest model. We apply this to *long* tasks (short hard tasks should just use the senior directly).
+- **Confidence research:** Validates that self-assessment is unreliable, so we never gate escalation on "I feel unsure."
+
+## Roadmap: what we're adding based on this research
+
+### v0.2.0 (short-term)
+1. **Hook-enforced budget** (currently advisory): ledger tracks `senior_calls: {plan:1, stall_fp:1, ...}`. When exhausted but a mandatory review is due, refuse and escalate to human (no silent skip).
+2. **Escalation packet deduplication**: ledger records recent packet fingerprints (hash + timestamp). Same hash within 5 minutes → skip (avoid redundant senior calls on identical evidence).
+3. **Verbalized confidence as auxiliary signal** (not sole trigger): when STALL fires and the worker's output contains "I think / probably / might be", lower the threshold or fire immediately (complement, not replace, the objective tripwire).
+4. **Integration with agent-lessonbook**: when the same `diagnosis` from a senior appears 3+ times, prompt "this should be a lesson now" so future cheap workers can read it without escalating.
+
+### v0.3.0 (mid-term exploration)
+1. **Hybrid static + dynamic**: if the user has run 10+ similar goals, offline-learn (FrugalGPT style) "this task class typically stalls at step X" and pre-allocate budget accordingly.
+2. **Tiered quality targets**: not just "stuck → escalate", but also "budget nearly gone → downgrade" (e.g. from deliberative-analysis back to direct fix, trading thoroughness for cost).
+
+These stay true to the core principle: **objective, model-external tripwires**. We're adding smarter budgeting and historical learning, not replacing tripwires with self-assessment.
+
 ## Status
 
 `v0.1.0` preview. MIT. Pairs with [`agent-arena`](https://github.com/zhjai/agent-arena) (required: the mechanism), [`agent-completion-gate`](https://github.com/zhjai/agent-completion-gate), and [`agent-lessonbook`](https://github.com/zhjai/agent-lessonbook). Self-tests in [`tests/`](tests/).
