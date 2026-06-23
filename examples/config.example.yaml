@@ -8,12 +8,20 @@ worker:
 escalation:
   # Senior model to escalate to (or auto-detect for cross-vendor heterogeneity)
   senior_model: auto-detect  # auto-detect | claude-opus-4-8 | codex-5.5 | glm-4-plus
-  
-  # Fallback order when escalation fails
+
+  # Fallback order when escalation fails (senior -> human tiers, NOT CLI fallback)
   fallback_order:
     - senior        # Try senior model first
     - human_async   # If senior fails, async human via grill-feishu
     - human_sync    # If no grill-feishu, synchronous block
+
+  # Free-form provider notes the agent reads and HONORS when choosing/invoking the senior.
+  # Use this for anything the rigid fields above can't capture — endpoint quirks, CLI
+  # fallbacks, channel preferences. The agent handles it flexibly rather than parsing a schema.
+  notes: |
+    # Example:
+    # Primary codex runs on the sakura886 endpoint.
+    # If codex is unavailable, fall back to the codex-official CLI (Plus channel).
   
   # Arena mode preferences: adaptive by default (not all escalations need two agents)
   # Judgment calls (PLAN_REVIEW, IRREVERSIBLE_GUARD, PRE_DONE_REVIEW, scope) → heterogeneous
