@@ -151,6 +151,34 @@ senior call itself. Without the hook, the skill still works in a **degraded mode
 self-reports a one-line status after each attempt), but the mandatory START / IRREVERSIBLE / PRE_DONE
 escalations are the backstop that does **not** depend on the worker noticing anything.
 
+## Setup for cheap workers — preventing context loss
+
+**Problem:** If the user says "you are a cheap model" at session start, but context compaction or long
+runtime causes the model to forget, it may stop escalating.
+
+**Solution: Set `KYL_WORKER_TIER` environment variable**
+
+```bash
+export KYL_WORKER_TIER=cheap
+codex exec "Train ResNet on CIFAR-10"
+# or
+grill-run --tier cheap -- codex exec "..."
+```
+
+The hook reads `KYL_WORKER_TIER` and:
+1. **Enforces mandatory PLAN_REVIEW** (PreToolUse): if cheap worker on L2/L3 task starts editing without
+   plan review, hook forces a nudge — no longer relies on model remembering to call the skill.
+2. **Periodic reminder** (every 20 actions): light nudge to use know-your-limits.
+3. **PreCompact reminder**: tells the model "you are cheap" before compaction, reducing forgetting.
+
+**Set task class in ledger:**
+```bash
+# When starting an L2/L3 task, write to ledger
+echo '{"task_class": "L2", "plan_reviewed": false, "actions": 0}' > state/know-your-limits/ledger.json
+```
+
+The hook will force PLAN_REVIEW before the first Edit/Write if `plan_reviewed` is false.
+
 ## Do not
 - **Do not gate escalation on the worker's self-assessed confidence** — use the objective tripwires.
 - **Do not escalate everything** — that defeats the cost saving; respect the budget and dedupe.

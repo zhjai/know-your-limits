@@ -21,6 +21,7 @@ Output (valid on Claude Code AND Codex): a single line of JSON
 
 Env:
   KYL_LEDGER       path to the ledger JSON (default state/know-your-limits/ledger.json)
+  KYL_WORKER_TIER  worker tier (cheap/expensive) — cheap workers get periodic reminders
   KYL_STALL_N      stall threshold (default 2)
   KYL_OSC_M        oscillation threshold (default 3)
   KYL_SCOPE_K      scope-drift module threshold (default 2)
@@ -36,10 +37,11 @@ def _envint(name, default):
     except (TypeError, ValueError):
         return default
 
-STALL_N    = _envint("KYL_STALL_N", 2)
-OSC_M      = _envint("KYL_OSC_M", 3)
-SCOPE_K    = _envint("KYL_SCOPE_K", 2)
-ACTIONS_A  = _envint("KYL_ACTIONS_A", 40)
+STALL_N      = _envint("KYL_STALL_N", 2)
+OSC_M        = _envint("KYL_OSC_M", 3)
+SCOPE_K      = _envint("KYL_SCOPE_K", 2)
+ACTIONS_A    = _envint("KYL_ACTIONS_A", 40)
+WORKER_TIER  = os.environ.get("KYL_WORKER_TIER", "").lower()  # "cheap" or empty
 
 # Tools that actually MUTATE a file — only these count toward oscillation/scope. A Read/Grep of the
 # same file 3x must not look like thrashing.
@@ -157,7 +159,24 @@ def main():
     L = _load(p)
     nudges = []
 
-    if event == "PostToolUse":
+    if event == "PreToolUse":
+        # MANDATORY: cheap workers on L2/L3 tasks MUST do plan review before starting real work
+        # This enforces the mandatory tripwire even if the model forgot it's cheap
+        tool_name = str(d.get("tool_name") or "").lower()
+        is_mutating = any(m in tool_name for m in _MUTATING_TOOLS)
+
+        if WORKER_TIER == "cheap" and is_mutating:
+            task_class = L.get("task_class", "")  # "L1"/"L2"/"L3", set by skill or user
+            plan_reviewed = L.get("plan_reviewed", False)
+
+            # If L2/L3 task and no plan review yet, FORCE it
+            if task_class in ["L2", "L3"] and not plan_reviewed:
+                nudges.append(
+                    "⚠️ MANDATORY PLAN_REVIEW: You are a cheap worker on an L2/L3 task. "
+                    "Before making substantive edits, escalate to agent-arena mode=implementation_plan_review "
+                    "to get a senior's review of your plan. Mark ledger['plan_reviewed']=true after escalating.")
+
+    elif event == "PostToolUse":
         L["actions"] = L.get("actions", 0) + 1
         out = _tool_text(d)
 
@@ -207,11 +226,22 @@ def main():
                 f"CHECKPOINT_DEBT: {L['since_pass']} actions with no passing check. "
                 "Do a senior audit (quick_panel): are you still on the right track, or drifting?")
 
+        # Periodic reminder for cheap workers (every 20 actions, light nudge)
+        if WORKER_TIER == "cheap" and L["actions"] % 20 == 0:
+            nudges.append(
+                "[Reminder: You are a cheap worker. Use know-your-limits skill to escalate hard decisions to a senior model.]")
+
     elif event == "PreCompact":
         # counters survive in the on-disk ledger; remind the worker not to lose escalation state
-        nudges.append(
+        base_reminder = (
             "Context is about to compact. The know-your-limits ledger is on disk (state/know-your-limits/"
             "ledger.json) — after compaction, re-read it rather than resetting your stall/scope counters to zero.")
+
+        # If cheap worker, also remind about tier (prevents forgetting after compaction)
+        if WORKER_TIER == "cheap":
+            base_reminder += " You are a cheap worker (KYL_WORKER_TIER=cheap) — use know-your-limits for hard decisions."
+
+        nudges.append(base_reminder)
 
     _save(p, L)
     _emit(event, "  ".join(nudges))

@@ -191,6 +191,70 @@ class KylHook(unittest.TestCase):
         self.assertEqual(p.returncode, 0)
         self.assertFalse(os.path.exists(os.path.join(self.dir, "..", "..", "escape", "ledger.json")))
 
+    def test_cheap_worker_periodic_reminder(self):
+        # Every 20 actions, cheap workers get a light reminder
+        ledger = os.path.join(tempfile.mkdtemp(), "l.json")
+        env = {"KYL_LEDGER": ledger, "KYL_WORKER_TIER": "cheap"}
+        ok = {"hook_event_name": "PostToolUse", "tool_exit_code": 0, "tool_response": "working"}
+
+        # 19 actions: no reminder yet
+        for _ in range(19):
+            run(ok, ledger, env)
+
+        # Read ledger to check action count
+        with open(ledger) as f:
+            L = json.load(f)
+        self.assertEqual(L["actions"], 19)
+
+        # 20th action: reminder fires
+        _, c20 = run(ok, ledger, env)
+        self.assertIn("Reminder: You are a cheap worker", c20)
+
+        # 21-39: no reminder
+        for _ in range(19):
+            _, c = run(ok, ledger, env)
+            if _ < 18:  # actions 21-38
+                self.assertNotIn("Reminder: You are a cheap worker", c)
+
+        # 40th: reminder again
+        _, c40 = run(ok, ledger, env)
+        self.assertIn("Reminder: You are a cheap worker", c40)
+
+    def test_mandatory_plan_review_for_cheap_l2(self):
+        # PreToolUse: cheap worker on L2 task editing without plan review → forced nudge
+        ledger = os.path.join(tempfile.mkdtemp(), "l.json")
+        # Seed ledger with L2 task, no plan review
+        with open(ledger, "w") as f:
+            json.dump({"task_class": "L2", "plan_reviewed": False, "actions": 0}, f)
+
+        env = {"KYL_LEDGER": ledger, "KYL_WORKER_TIER": "cheap"}
+        pre_edit = {"hook_event_name": "PreToolUse", "tool_name": "Edit"}
+
+        _, ctx = run(pre_edit, ledger, env)
+        self.assertIn("MANDATORY PLAN_REVIEW", ctx)
+        self.assertIn("cheap worker on an L2/L3 task", ctx)
+
+    def test_mandatory_plan_review_not_for_expensive(self):
+        # Expensive worker or no tier → no forced plan review
+        ledger = os.path.join(tempfile.mkdtemp(), "l.json")
+        with open(ledger, "w") as f:
+            json.dump({"task_class": "L2", "plan_reviewed": False, "actions": 0}, f)
+
+        env = {"KYL_LEDGER": ledger}  # no WORKER_TIER
+        pre_edit = {"hook_event_name": "PreToolUse", "tool_name": "Edit"}
+
+        _, ctx = run(pre_edit, ledger, env)
+        self.assertNotIn("MANDATORY PLAN_REVIEW", ctx)
+
+    def test_precompact_reminds_cheap_worker(self):
+        # PreCompact should remind cheap worker about tier
+        ledger = os.path.join(tempfile.mkdtemp(), "l.json")
+        env = {"KYL_LEDGER": ledger, "KYL_WORKER_TIER": "cheap"}
+
+        _, ctx = run({"hook_event_name": "PreCompact"}, ledger, env)
+        self.assertIn("You are a cheap worker", ctx)
+        self.assertIn("KYL_WORKER_TIER=cheap", ctx)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

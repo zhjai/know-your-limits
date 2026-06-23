@@ -46,6 +46,26 @@ Then, for the reliable setup, wire the hook (merge the example into your host's 
 
 You also need the escalation mechanism installed: `npx skills add zhjai/agent-arena`.
 
+**For cheap workers: set the environment variable to prevent context-loss forgetting**
+
+```bash
+# Tell the hook this is a cheap worker
+export KYL_WORKER_TIER=cheap
+
+# Then run your agent
+codex exec "Train ResNet on CIFAR-10"
+
+# Or use a wrapper (if you have one)
+grill-run --tier cheap -- codex exec "..."
+```
+
+This enables:
+- **Mandatory PLAN_REVIEW enforcement** (hook forces it at PreToolUse if cheap worker on L2/L3 starts editing without review)
+- **Periodic reminders** (every 20 actions: light nudge to use know-your-limits)
+- **PreCompact reminder** (before context compaction, reminds "you are cheap")
+
+Without `KYL_WORKER_TIER`, the hook still counts tripwires (STALL/OSCILLATION/etc.), but won't enforce mandatory reviews or remind the model.
+
 ## Budget — escalation is a scarce tool, not the default
 
 The whole point is saving money, so senior calls are capped and reserved up front:
