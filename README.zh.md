@@ -17,7 +17,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="MIT License"></a>
 </p>
 
-为了省 token，你让一个小模型（gpt-5-mini、Claude Haiku、GLM-4.7-Flash、deepseek-v4-flash、kimi-k2.7-code-highspeed……）当主力跑长任务。它干杂活没问题——但一旦撞上硬骨头（一个怎么都修不好的 bug、一个需要判断力的方案、一个不可逆的改动），它会**信心十足地猜错方向**，把几个小时的功夫全砸进死路里。
+为了省 token，你让一个小模型（gpt5.4-mini、Claude Haiku、GLM-4.7-Flash、deepseek-v4-flash、kimi-k2.7-code-highspeed……）当主力跑长任务。它干杂活没问题——但一旦撞上硬骨头（一个怎么都修不好的 bug、一个需要判断力的方案、一个不可逆的改动），它会**信心十足地猜错方向**，把几个小时的功夫全砸进死路里。
 
 `know-your-limits` 管的是**「什么时候」该把难点升级给高级模型**这条策略。真正发起跨模型调用的**机制**是 [`agent-arena`](https://github.com/zhjai/agent-arena)；本 skill 只负责判断**何时**拉这根升级杆，这样你只在真正需要的关头才为贵的模型买单。
 
