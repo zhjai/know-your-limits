@@ -2,9 +2,36 @@
 
 > **A cheap model running a long task should know when it's out of its depth — and phone a senior, instead of confidently guessing.**
 
+<p align="center">
+  <img src="assets/banner.svg" alt="know-your-limits — a cheap worker escalates the hard parts to a senior model on objective tripwires" width="100%">
+</p>
+
+<p align="center">
+  <strong>English</strong> · <a href="README.zh.md">中文</a>
+</p>
+
+<p align="center">
+  <a href="#installation"><img src="https://img.shields.io/badge/skill-know--your--limits-blue" alt="skill"></a>
+  <a href="#claude-code"><img src="https://img.shields.io/badge/Claude%20Code-portable%20skill-6b46c1" alt="Claude Code"></a>
+  <a href="#openai-codex"><img src="https://img.shields.io/badge/OpenAI%20Codex-portable%20skill-111827" alt="OpenAI Codex"></a>
+  <a href="https://github.com/zhjai/agent-arena"><img src="https://img.shields.io/badge/requires-agent--arena-e11d48" alt="requires agent-arena"></a>
+  <img src="https://img.shields.io/badge/version-0.1.1-informational" alt="version">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="MIT License"></a>
+</p>
+
 You run a small/cheap model (gpt-5-mini, Claude Haiku, GLM, DeepSeek, Kimi…) as the primary worker on a long task to save tokens. It does the grunt work fine — until it hits a hard moment (a bug it can't crack, a plan that needs judgment, an irreversible change) and **confidently guesses wrong**, burning hours on a bad path.
 
 `know-your-limits` is the **policy of WHEN** that worker should escalate the hard parts to a strong senior model. The escalation **mechanism** is [`agent-arena`](https://github.com/zhjai/agent-arena) (it makes the heterogeneous cross-model call); this skill decides *when* to pull that lever, so you pay for the expensive model only at the moments that need it.
+
+Best for: large multi-step refactors · codebase-wide changes · migrations · long unattended agent runs · any task where "lots of cheap grunt work + a few hard moments" describes the shape.
+
+Not for: short tasks · tasks that are mostly-hard (just use the senior directly) · trivial reversible steps.
+
+It is designed for **Claude Code, OpenAI Codex, Hermes Agent, OpenClaw, OpenCode, Copilot CLI, and other AI coding agents** that support custom skills and lifecycle hooks.
+
+> **Important:** this repository is a policy skill plus a thin trigger hook. It does **not** install, authenticate, or call the senior model itself — that is [`agent-arena`](https://github.com/zhjai/agent-arena)'s job, and agent-arena in turn depends on the host having the senior's CLI, credentials, and shell access. Without agent-arena installed, this skill degrades to "flag the hard moment and ask the human."
+
+This project is not affiliated with Anthropic, OpenAI, or any model vendor.
 
 ## The core idea: tripwires, not "do you feel unsure?"
 
@@ -16,76 +43,148 @@ So escalation fires on **objective, observable events** instead:
 |---|---|---|
 | **PLAN_REVIEW** (mandatory) | a substantial/risky task starts | review the plan before doing it |
 | **IRREVERSIBLE_GUARD** (mandatory) | about to do a schema change / migration / delete / deploy / auth change / add a dependency | review *before* the irreversible action |
-| **PRE_DONE_REVIEW** (mandatory) | about to call it done on a large/risky diff | a real review before "done" |
+| **PRE_DONE_REVIEW** (mandatory) | about to call an L2/L3 task done (or a large/risky L1 diff) | a real review before "done" |
 | **STALL_RESCUE** | the same error survives 2 different fix attempts | stop guessing, get a root-cause |
 | **OSCILLATION** | same file edited 3× with no passing check | the approach is wrong, not the code |
-| **SCOPE_DRIFT** | touched ≥3 unplanned modules (default) before any check passes | confirm scope before spreading |
+| **SCOPE_DRIFT** | touched ≥3 unplanned modules before any check passes | confirm scope before spreading |
 | **CHECKPOINT_DEBT** | ≥40 actions since phase start / last checkpoint, no checkpoint passed | senior audit to confirm still on track |
 | **GATE_BLOCK** | an [`agent-completion-gate`](https://github.com/zhjai/agent-completion-gate) check returns BLOCKED | fix the real cause |
 
 The **mandatory** ones don't depend on the worker noticing anything — they fire on the task class and the action type. The **reactive** ones are *counted by a hook*, not by the model (a cheap model mis-counts its own attempts).
 
+## What it does — a concrete run
+
+**Scenario:** a cheap worker is fixing a failing endpoint. The same test keeps going red.
+
+```text
+attempt 1 → POST /orders → 500 "TypeError: cannot read 'id' of undefined" → fix guess A → still 500
+attempt 2 → same error fingerprint → fix guess B → still 500
+            └─ hook counts: same error survived 2 attempts → STALL_RESCUE trips
+```
+
+**The worker stops guessing and escalates** (via agent-arena, mode `solo_red_team`, single senior — a bounded bug diagnosis only needs one strong model, GPT/Codex by default). It sends a **minimal packet**: the trigger, the goal, the raw stack trace + the two diffs it tried — *not* its own pet theory.
+
+**The senior replies in a compact schema** the cheap worker can actually act on:
+
+```yaml
+status: replan
+diagnosis: "The handler reads req.user before the auth middleware runs on this route."
+next_actions:
+  - Register requireAuth on the /orders router, before the handler
+  - Return 401 (not 500) when req.user is absent
+checks:
+  - npm test -- orders.spec
+risks:
+  - Other /orders routes may rely on the same missing middleware
+```
+
+The worker applies the fix, the test passes, the hook resets the stall counter — and you paid for the senior **once**, at the moment it mattered, not on every trivial step.
+
 ## Why a hook, not just a skill
 
 A cheap worker can't reliably track "have I failed the same way twice?" across a long session — it mis-counts, rationalizes ("this attempt was different"), and loses the count when context compacts. So the reliable setup is **the skill + a thin hook**:
 
-- The **hook** ([`integrations/hooks/kyl_hook.py`](integrations/hooks/kyl_hook.py)) keeps a small on-disk **escalation ledger** (attempts per error, files touched, modules, actions, budget) from real lifecycle events, and **nudges escalation when a tripwire trips**. It never makes the senior call, never blocks, never marks anything done.
+- The **hook** ([`integrations/hooks/kyl_hook.py`](integrations/hooks/kyl_hook.py)) keeps a small on-disk **escalation ledger** (attempts per error, files touched, modules, actions, budget) from real lifecycle events, and **nudges escalation when a tripwire trips**. It never makes the senior call, never blocks, never marks anything done, and exits 0 on bad input.
 - The **skill** owns the mandatory escalations (start / irreversible / pre-done) — the backstop that works even with no hook.
 
 Without the hook it still runs in a **degraded mode** (the worker self-reports a one-line status each step), but the mandatory tripwires remain the safety net.
 
-## Get started
+## Companion skills — what to install alongside
+
+`know-your-limits` deliberately does not reimplement cross-model calls, async human escalation, or the authority over "done". It composes with separate skills:
+
+| Skill | Required? | Role | Repo |
+|---|---|---|---|
+| **agent-arena** | **Yes — the escalation mechanism** | Makes the heterogeneous senior call (independent answers, dissent preserved). Without it, this skill can only flag-and-ask-human. | [zhjai/agent-arena](https://github.com/zhjai/agent-arena) |
+| experiment-grill-feishu | Optional | Async human escalation + completion notifications via Feishu, for long **unattended** runs. | [zhjai/experiment-grill-feishu](https://github.com/zhjai/experiment-grill-feishu) |
+| agent-completion-gate | Optional | The **only** thing that says the work is actually *done* — a senior review here is advisory. A gate BLOCK is a tripwire. | [zhjai/agent-completion-gate](https://github.com/zhjai/agent-completion-gate) |
+| deliberative-analysis | Optional | Pre-escalation local option expansion — if the hard part is bad framing, widen options before paying for a senior. Ships inside the agent-arena repo. | [zhjai/agent-arena](https://github.com/zhjai/agent-arena) |
+| agent-lessonbook | Optional | Record policy misses (escalated too late/early, a threshold to tune) so you can adjust. | [zhjai/agent-lessonbook](https://github.com/zhjai/agent-lessonbook) |
+
+The skill itself reminds you: on **first use in a project** it runs a soft initialization (see below) that checks for `agent-arena` and offers to wire the hook, and surfaces the Feishu option only if `experiment-grill-feishu` is already installed.
+
+## Installation
+
+### Quick install (recommended)
+
+Install with the [`skills`](https://github.com/vercel-labs/skills) CLI — works with Claude Code, Codex, Cursor, OpenCode, and 50+ other agents:
 
 ```bash
+# 1. Install know-your-limits (the policy) — globally, across all projects
 npx skills add zhjai/know-your-limits -g -a claude-code   # or -a codex, … any host
+
+# 2. REQUIRED: install the escalation mechanism
+npx skills add zhjai/agent-arena -g -a claude-code
+
+# 3. Optional: async human escalation + completion pings via Feishu
+npx skills add zhjai/experiment-grill-feishu -g -a claude-code
 ```
 
-**Health check (optional):** verify your setup
+Swap `-a claude-code` for `-a codex` (or another agent), or omit `-a` to choose interactively. Drop `-g` to install into the current project instead of globally.
+
+> Step 2 is not optional in practice: `know-your-limits` is the *policy of when*; `agent-arena` is the *mechanism of how*. With only step 1 installed, every escalation degrades to "stop and ask the human."
+
+### Wire the hook (for reliable reactive tripwires)
+
+The reactive tripwires (STALL / OSCILLATION / SCOPE_DRIFT / CHECKPOINT_DEBT) are **counted by the hook**, not the model. Merge the example into your host's hook config and fix the path:
+
+- Claude Code: [`integrations/claude-code/settings.hooks.json`](integrations/claude-code/settings.hooks.json)
+- Codex: [`integrations/codex/hooks.json`](integrations/codex/hooks.json)
+
+On first use the skill auto-checks whether the hook is wired and offers to add it if missing.
+
+### For cheap workers: set the tier environment variable
+
+If context compaction or long runtime makes the model forget it's a cheap worker, it may stop escalating. Tell the hook explicitly:
+
+```bash
+export KYL_WORKER_TIER=cheap
+codex exec "Migrate the orders module to the new payments API"
+```
+
+This enables a strong PLAN_REVIEW nudge before the first edit on L2/L3 tasks, a periodic reminder every 20 actions, and a "you are cheap" reminder before context compaction.
+
+### Health check (optional)
 
 ```bash
 cd <know-your-limits-repo>
 python3 scripts/kyl_doctor.py
 ```
 
-This checks:
-- ✅ Skills installed (know-your-limits, agent-arena required; grill-feishu optional)
-- ✅ Hook wired (for reliable reactive tripwires)
-- ✅ `KYL_WORKER_TIER` set (for cheap workers)
-- ℹ️ Config exists (created on first use via soft init)
+Verifies: skills installed (know-your-limits, agent-arena **required**; grill-feishu optional), hook wired, `KYL_WORKER_TIER` set, config present.
 
-**Config (soft init):** On first use in a project, the agent will ask you three questions and write `state/know-your-limits/config.yaml` from your answers — no script needed:
+### Manual install
 
-1. Are you running a cheap/small model as the primary worker?
-2. Which senior model to escalate to?
-3. Do you want task completion and escalation notifications via Feishu?
+Portable `skills/<skill-name>/SKILL.md` layout — copy the **whole skill folder** so bundled files travel with it.
 
-Edit `state/know-your-limits/config.yaml` at any time to customize. See [`examples/config.example.yaml`](examples/config.example.yaml) for all options.
-
-Then, for the reliable setup, wire the hook (merge the example into your host's hook config and fix the path):
-- Claude Code: [`integrations/claude-code/settings.hooks.json`](integrations/claude-code/settings.hooks.json)
-- Codex: [`integrations/codex/hooks.json`](integrations/codex/hooks.json)
-
-You also need the escalation mechanism installed: `npx skills add zhjai/agent-arena`.
-
-**For cheap workers: set the environment variable to prevent context-loss forgetting**
+#### Claude Code
 
 ```bash
-# Tell the hook this is a cheap worker
-export KYL_WORKER_TIER=cheap
-
-# Then run your agent
-codex exec "Train ResNet on CIFAR-10"
-
-# Or use a wrapper (if you have one)
-grill-run --tier cheap -- codex exec "..."
+git clone https://github.com/zhjai/know-your-limits.git
+mkdir -p ~/.claude/skills
+cp -R know-your-limits/skills/know-your-limits ~/.claude/skills/
+# then install agent-arena the same way (required)
 ```
 
-This enables:
-- **Mandatory PLAN_REVIEW nudging** (hook issues strong nudge at PreToolUse if cheap worker on L2/L3 starts editing without review; full enforcement in v0.2.0)
-- **Periodic reminders** (every 20 actions: light nudge to use know-your-limits)
-- **PreCompact reminder** (before context compaction, reminds "you are cheap")
+#### OpenAI Codex
 
-Without `KYL_WORKER_TIER`, the hook still counts tripwires (STALL/OSCILLATION/etc.), but won't nudge mandatory reviews or remind the model.
+```bash
+git clone https://github.com/zhjai/know-your-limits.git
+mkdir -p "${CODEX_HOME:-$HOME/.codex}/skills"
+cp -R know-your-limits/skills/know-your-limits "${CODEX_HOME:-$HOME/.codex}/skills/"
+```
+
+Restart or reload your agent session so it rescans skills. Exact paths vary by host; prefer your agent's official docs when they differ.
+
+## Configuration — soft initialization
+
+On **first use in a project**, the agent asks you a couple of questions and writes `state/know-your-limits/config.yaml` from your answers — no script, no form:
+
+1. **Worker tier** *(skipped if `KYL_WORKER_TIER` is already set)* — are you running a cheap/small model as the primary worker?
+2. **Senior model** *(always asked)* — which model to escalate hard decisions to? (default: cross-vendor — Codex workers → Claude, Claude workers → Codex)
+3. **Feishu notifications** *(only if `experiment-grill-feishu` is detected)* — want completion + escalation pings?
+
+Then it auto-checks the hook wiring and offers to add it if missing. Budget limits default to `L1:1 / L2:3 / L3:4`. Edit `config.yaml` any time — see [`examples/config.example.yaml`](examples/config.example.yaml) for all options, including per-trigger arena mode and participant depth.
 
 ## Budget — escalation is a scarce tool, not the default
 
@@ -95,30 +194,12 @@ The whole point is saving money, so senior calls are capped and reserved up fron
 - **L2** (long-running): ≤3, reserve 1 for the final review
 - **L3** (high-risk / irreversible): ≤4, reserve 1 for planning + 1 for final review
 - **Dedupe:** same trigger + same error + no new evidence → don't re-escalate
-- **Human backstop:** if the senior also can't resolve it (or the same escalation fires twice with no progress), stop and surface it to *you* — don't loop a senior on a judgment call.
-
-The packet sent to the senior is minimal (trigger, goal, acceptance criteria, raw evidence, ≤3 questions), and the senior replies in a compact schema (`status / diagnosis / next_actions / checks / risks`) the cheap worker can actually act on — never a transcript that blows its context.
-
-## When NOT to use it
-
-- **Short tasks** — if it's small *and* hard, just use the senior model directly. Tiering only saves money when there's lots of cheap grunt work around a few hard moments.
-- **When the host can't call the senior** — agent-arena needs shell + the senior's CLI + credentials. Without that, this degrades to "flag the moment and ask the human."
-
-## Where it fits
-
-```
-know-your-limits      — WHEN a cheap worker escalates the hard parts
-agent-arena           — HOW the heterogeneous senior call happens
-deliberative-analysis — expand options locally before escalating (if the problem is bad framing)
-agent-completion-gate — the only thing that says the work is actually DONE (a senior review is advisory)
-agent-lessonbook      — record policy misses (escalated too late/early; a threshold to tune)
-```
-
-This skill owns **when**. It never replaces the gate's authority over "done", and it routes *through* agent-arena rather than reimplementing cross-model calls.
+- **Adaptive depth:** judgment calls (plan / irreversible / pre-done) use two heterogeneous agents; bounded diagnosis (stall / oscillation) uses one strong senior. Override per-trigger in config.
+- **Human backstop:** if the senior also can't resolve it (`status: human_required`, or the same escalation fires twice with no progress), stop and surface it to *you* — don't loop a senior on a judgment call.
 
 ## How this compares to existing solutions
 
-We surveyed model routing / fallback / escalation systems to understand what exists and what's missing. **TL;DR: know-your-limits is the only system that detects "I'm stuck" at runtime using objective tripwires, rather than relying on the model's self-assessment or reacting passively to timeouts.**
+**TL;DR: know-your-limits is the only system that detects "I'm stuck" at runtime using objective tripwires, rather than relying on the model's self-assessment or reacting passively to timeouts.**
 
 | Feature | LiteLLM | AutoGen | Swarm | FrugalGPT | know-your-limits |
 |---------|---------|---------|-------|-----------|------------------|
@@ -130,92 +211,24 @@ We surveyed model routing / fallback / escalation systems to understand what exi
 | **Per-goal budget** | ✅ (partial) | ❌ | ❌ | ❌ | ✅ |
 | **Long-task specialized** | ❌ | ❌ | ❌ | ✅ (partial) | ✅ |
 
-### What exists
+- **LiteLLM:** Passive fallback (timeout / 429 / 5xx → retry → switch model). No "I'm about to get stuck" detection.
+- **AutoGen / Swarm:** Explicit orchestration. No runtime self-awareness or automatic escalation.
+- **FrugalGPT (Stanford):** Static routing (offline classifier). 98% cost reduction, but not dynamic mid-run escalation.
+- **Confidence-calibration research:** self-assessed confidence has ~50% calibration error, especially for overconfident cheap models — which validates the "objective tripwires" design.
 
-- **LiteLLM:** Passive fallback (timeout / 429 / 5xx → retry → switch model). Production-grade cost tracking, but no "I'm about to get stuck" detection.
-- **AutoGen / Swarm:** Explicit orchestration (a coordinator routes tasks to specialist agents). No runtime self-awareness or automatic escalation.
-- **FrugalGPT (Stanford):** Static routing (offline-trained classifier: question features → model choice). 98% cost reduction, but not dynamic escalation (doesn't detect getting stuck mid-run).
-- **LLM confidence calibration research:** Self-assessed confidence has ~50% calibration error, especially for overconfident cheap models. This validates our "objective tripwires" design — asking "do you feel unsure?" is unreliable.
+## When NOT to use it
 
-### What's unique here
+- **Short tasks** — if it's small *and* hard, just use the senior model directly. Tiering only saves money when there's lots of cheap grunt work around a few hard moments.
+- **When the host can't call the senior** — agent-arena needs shell + the senior's CLI + credentials. Without that, this degrades to "flag the moment and ask the human."
 
-**Objective tripwires instead of self-assessment.** The core insight: an overconfident or cheap model won't notice it's stuck (asking it "are you unsure?" is self-referential). So escalation fires on **counted, observable events**:
-- **STALL:** same error fingerprint survives 2 fix attempts (the hook counts this, not the model)
-- **OSCILLATION:** same file edited 3× with no passing check
-- **SCOPE_DRIFT:** touched ≥3 unplanned modules (default) before any check passes
-- **CHECKPOINT_DEBT:** ≥40 actions with no checkpoint passed (two-stage: 20 = nudge, 40 = audit)
-- **Mandatory:** plan review at start / irreversible-action guard / pre-done review (fire regardless of model confidence)
+## Related topics and search terms
 
-The **hook keeps the ledger** outside the model's context (a cheap model forgets/mis-counts its own attempts across compaction). The **skill is the policy** (when to escalate), **agent-arena is the mechanism** (how to call the senior).
+AI agent skill · Claude Code skill · OpenAI Codex skill · cost-tiering · model routing · escalation policy · cheap model senior model · long-task agent · runtime stuck detection · objective tripwires · agent escalation budget · multi-agent escalation · FrugalGPT alternative · LiteLLM fallback · know your limits.
 
-### Lessons we borrowed
+## Versioning
 
-- **LiteLLM's cost tracking:** per-user/project/goal token accounting. We added per-goal budget with reserved slots for mandatory reviews.
-- **FrugalGPT's tiering insight:** Not every task needs the strongest model. We apply this to *long* tasks (short hard tasks should just use the senior directly).
-- **Confidence research:** Validates that self-assessment is unreliable, so we never gate escalation on "I feel unsure."
+Current release line: `v0.1.x` preview. Tagged releases are on the [Releases page](https://github.com/zhjai/know-your-limits/releases) — pin to a tag for reproducible installs, or track `main` for the newest changes. See [`CHANGELOG.md`](CHANGELOG.md).
 
-## Roadmap: what we're adding based on this research
+## License
 
-### v0.2.0 (short-term) — Hardened enforcement
-
-**Core fix: move from advisory to enforced budgeting.** Codex arena review found that the current design has no enforcement point — the hook observes calls after they happen, and worker self-report is untrustworthy.
-
-1. **Guarded launcher** (`kyl-escalate`): introduces a control point (like LiteLLM's request gateway) that wraps agent-arena calls. The launcher:
-   - Accepts `goal_id`, `request_id`, trigger, mode, and packet
-   - Atomically reserves a budget slot before calling the senior
-   - Records state: `pending → started → completed/failed/unknown`
-   - Uses `request_id` as the idempotency key
-   - Returns `HUMAN_REQUIRED` when a mandatory review cannot be funded (no silent skip)
-   - Enforcement mode: `guarded` (can reject calls) or `advisory` (can only log)
-
-2. **Evidence-aware deduplication**: hash includes `goal_id + trigger + mode + sorted evidence digests + normalized questions`. Skip only when an equivalent request is pending or already answered AND no evidence revision occurred. Time windows don't define equivalence — evidence changes do.
-
-3. **~~Verbalized confidence~~** — **removed from v0.2.0**. Arena review found this is a Trojan horse: "I think / probably" measures writing style and model family, not calibrated uncertainty (cautious models false-positive, overconfident models false-negative). It contradicts the core "objective tripwires" principle. Demoted to optional telemetry (not policy) for future calibration experiments.
-
-4. **Explicit `goal_id` tracking**: ledger and launcher use a stable goal identifier so budgets don't leak across goals and dedup works correctly.
-
-5. **Formalize CHECKPOINT_DEBT tripwire** (already exists in code, now documented): two-stage escalation at 20 actions (local nudge, free) and 40 actions (senior audit, consumes audit budget). Only fires for L2/L3 tasks with plan-defined checkpoints. More accurate name than PROGRESS_DEBT.
-
-6. **Split budget pools**: separate mandatory / rescue / audit pools instead of a single shared cap:
-   - **Mandatory pool**: plan review + irreversible guards + pre-done review (always funded)
-   - **Rescue pool**: stall / oscillation / scope drift (opt-in, default budget)
-   - **Audit pool**: checkpoint debt + optional phase reviews (opt-in, 0 by default, max 1 call per goal, only for tasks >60min estimated duration)
-   
-   Prevents early reactive calls from blocking mandatory reviews, and makes audit budget an explicit opt-in rather than stealing from rescue capacity.
-
-7. **Integrate experiment-grill-feishu for async human escalation**: when senior review returns `HUMAN_REQUIRED` (e.g., IRREVERSIBLE_GUARD needs judgment, or senior is uncertain), and the user is not at the keyboard:
-   - If `experiment-grill-feishu` skill is available, send Feishu notification with senior's analysis + context
-   - Wait for user reply (timeout per grill-feishu policy, typically 5-15 min)
-   - If user replies: apply their decision
-   - If no reply: apply grill-feishu's risk-based fallback (BLOCK for high-risk irreversible actions, provisional for low-risk)
-   - If grill-feishu unavailable: checkpoint and block (traditional synchronous wait)
-   
-   Closes the gap: currently "escalate to HUMAN" has no async mechanism for long unattended tasks. This makes know-your-limits + grill-feishu a complete escalation chain: cheap → senior → human (with async notification).
-
-### v0.3.0 (mid-term) — Cross-goal learning
-
-**Prerequisite: a separate cross-goal history layer.** The current per-goal ledger is a single mutable JSON — it cannot support "10+ similar goals." Introduce two layers:
-- **Per-goal ledger**: real-time enforcement (current)
-- **Append-only event stream** (`state/know-your-limits/history.jsonl`): cross-goal, sanitized, durable
-
-Minimum events: `goal_started(task_class, risk_class)`, `phase_started`, `tripwire_fired`, `escalation_completed(cost, diagnosis_code, outcome)`, `goal_completed`.
-
-1. **Descriptive priors, not learned routing**: Start with aggregate stats ("6/12 repo migrations triggered STALL during validation") rather than training on 10 samples (insufficient for credible prediction). Offline learning becomes viable only after held-out evaluation is possible.
-
-2. **Structured diagnosis for lesson recurrence**: Extend senior reply schema with `diagnosis: {code, taxonomy_version, component, summary}`. Hook matches by code (not free-text). Create a lesson candidate only after the same versioned code appears across ≥3 distinct goals, was followed by successful resolution, and repeated calls in one stuck loop count once. Requires cross-goal history + human review before promotion to `control/lessons/`.
-
-3. **Procedure tiers** (renamed from "tiered quality"): Budget pressure may remove optional deliberation or audits, but never acceptance checks, mandatory reviews, irreversible-action guards, or the human backstop. Modes:
-   - `THOROUGH`: local deliberation + optional senior audit
-   - `BALANCED`: direct implementation + targeted checks
-   - `DIRECT`: direct implementation + mandatory validation only
-   - `HUMAN_REQUIRED`: continuation unsafe or unfunded
-   
-   Measure with ablation: does DIRECT actually save money, or do increased retries trigger more senior calls?
-
-**Boundary preserved:** trigger hook = deterministic counters (fail-open); guarded launcher = authorization + accounting (fail-closed for mandatory); models = proposals; human = final authority.
-
-These stay true to the core principle: **objective, model-external tripwires**. We're adding enforcement infrastructure and cross-goal observability, not replacing tripwires with self-assessment.
-
-## Status
-
-`v0.1.0` preview. MIT. Pairs with [`agent-arena`](https://github.com/zhjai/agent-arena) (required: the mechanism), [`agent-completion-gate`](https://github.com/zhjai/agent-completion-gate), and [`agent-lessonbook`](https://github.com/zhjai/agent-lessonbook). Self-tests in [`tests/`](tests/).
+MIT. See [`LICENSE`](LICENSE). The portable skill folder also includes a copy of the MIT license.
