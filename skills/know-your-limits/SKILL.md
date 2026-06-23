@@ -43,6 +43,11 @@ Before adopting this policy, check it actually saves money:
 - **Feasibility precondition:** the worker's host must actually be able to call the senior (agent-arena
   needs shell + the senior's CLI + credentials). If it can't, this skill degrades to "flag the moment
   and ask the human" — say so, don't pretend an escalation happened.
+- **Downgrade exit (the most important output):** if the worker is *so weak it will ignore the nudge*
+  and you can't wrap it in `kyl-run`, then **don't tier**. Run planning — and the genuinely hard
+  sub-steps — on the senior directly, handing the cheap worker only senior-decomposed units that each
+  carry a mechanically-checkable acceptance test. "This model is the wrong tool for this task" is a
+  valid and valuable conclusion, not a failure of the policy.
 
 ### 0.5. Soft initialization (on first use in a project)
 On **first use in a project**, check if `state/know-your-limits/config.yaml` exists. If not, ask the user these questions directly — no script, no form:
@@ -226,15 +231,30 @@ Sending notification before declaring done ensures the user is notified even if 
 - **agent-lessonbook** — record policy misses (escalated too late/early, a threshold that needs tuning,
   a recurring error fingerprint) so the human can adjust.
 
-## Reliability — why a hook, not just this skill
+## Reliability — three layers, only one of which *enforces*
 A cheap worker **cannot reliably maintain the counters** the reactive tripwires need (it mis-counts
-attempts, rationalizes "this attempt was different", loses track across compaction). So the reliable
-setup is **this skill + the thin hook** in [`integrations/`](integrations/): the hook keeps a small
-**escalation ledger** (elapsed, action count, error fingerprints, files touched, diff size, budget
-left) from real lifecycle events and **nudges escalation when a tripwire trips** — it never makes the
-senior call itself. Without the hook, the skill still works in a **degraded mode** (the worker
-self-reports a one-line status after each attempt), but the mandatory START / IRREVERSIBLE / PRE_DONE
-escalations are the backstop that does **not** depend on the worker noticing anything.
+attempts, rationalizes "this attempt was different", loses track across compaction). The setup:
+
+1. **The skill (policy)** — *when* to escalate. Read by the model; a weak model may not follow it.
+2. **The thin hook** ([`integrations/`](integrations/)) — keeps the escalation ledger and **nudges**
+   when a tripwire trips. **It only emits context; it cannot block, cannot make the senior call, cannot
+   stop a model that ignores it.** So a nudge is *advisory*, not enforcement. A "do not act before
+   PLAN_REVIEW" guarantee is **impossible to reach by nudging** — over a long task the chance of
+   compliance compounds toward zero.
+3. **The guarded launcher** [`scripts/kyl_run.py`](scripts/kyl_run.py) (`kyl-run`) — **the only layer
+   that actually enforces.** It moves the gate *out of the worker*: classifies the task (unknown → L2),
+   runs the senior PLAN_REVIEW as a **precondition**, and launches the write-capable worker phase
+   **only if the senior approves**. Authority (the approval record) is written under `control/`, not by
+   the worker. Guarantee (tested): for an L2/L3 task the worker is never run unless the plan passed.
+
+```bash
+kyl-run "build the SFT+GRPO+eval pipeline"     # classify → senior plan-review → execute only if approved
+# blocked/revise → worker never starts; surfaced to the human
+```
+
+Use **kyl-run for any task on a model too weak to obey the nudge** — which is most models worth tiering.
+The hook then degrades to drift detection + telemetry. Without either, the skill runs in a **degraded
+mode** (worker self-reports) and the mandatory escalations are advisory only.
 
 ## Setup for cheap workers — preventing context loss
 

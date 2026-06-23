@@ -50,7 +50,9 @@ So escalation fires on **objective, observable events** instead:
 | **CHECKPOINT_DEBT** | ≥40 actions since phase start / last checkpoint, no checkpoint passed | senior audit to confirm still on track |
 | **GATE_BLOCK** | an [`agent-completion-gate`](https://github.com/zhjai/agent-completion-gate) check returns BLOCKED | fix the real cause |
 
-The **mandatory** ones don't depend on the worker noticing anything — they fire on the task class and the action type. The **reactive** ones are *counted by a hook*, not by the model (a cheap model mis-counts its own attempts).
+The **mandatory** ones fire on the task class and action type, not on the worker noticing. The **reactive** ones are *counted by a hook*, not by the model (a cheap model mis-counts its own attempts).
+
+> **Nudge vs enforce — read this.** The hook can only *nudge* (inject context); it cannot block an edit or force the senior call, so a model weak enough to need tiering can ignore it. To actually **enforce** mandatory PLAN_REVIEW, run tasks through the guarded launcher [`kyl-run`](scripts/kyl_run.py): it classifies the task, runs the senior plan-review as a **precondition**, and launches the write-capable worker **only if the plan is approved**. The skill+hook alone are advisory; `kyl-run` is the gate. See [Enforcement](#enforcement--kyl-run-the-guarded-launcher).
 
 ## What it does — a concrete run
 
@@ -87,7 +89,23 @@ A cheap worker can't reliably track "have I failed the same way twice?" across a
 - The **hook** ([`integrations/hooks/kyl_hook.py`](integrations/hooks/kyl_hook.py)) keeps a small on-disk **escalation ledger** (attempts per error, files touched, modules, actions, budget) from real lifecycle events, and **nudges escalation when a tripwire trips**. It never makes the senior call, never blocks, never marks anything done, and exits 0 on bad input.
 - The **skill** owns the mandatory escalations (start / irreversible / pre-done) — the backstop that works even with no hook.
 
-Without the hook it still runs in a **degraded mode** (the worker self-reports a one-line status each step), but the mandatory tripwires remain the safety net.
+Without the hook it still runs in a **degraded mode** (the worker self-reports a one-line status each step), but the mandatory tripwires remain *advisory*.
+
+## Enforcement — `kyl-run`, the guarded launcher
+
+The skill and hook are the policy and the counters; **neither can stop a weak worker that ignores them.** A non-blocking hook injects context — it can't reject an edit or force the senior call. Over a long task, "please review the plan first" complied-with-probability-<1 compounds toward zero. So mandatory PLAN_REVIEW needs a layer that gates *outside* the worker.
+
+[`scripts/kyl_run.py`](scripts/kyl_run.py) is that layer:
+
+```bash
+kyl-run "build the SFT+GRPO+eval pipeline"
+#  1. classify the task            (deterministic; unknown → L2, fail-safe toward review)
+#  2. L2/L3 → senior PLAN_REVIEW    (a precondition, not a suggestion)
+#  3. launch the write-capable worker ONLY if the senior approves
+#     blocked/revise → worker never starts; surfaced to you
+```
+
+The approval record is written under `control/` (the launcher owns it; the worker can't forge it). The tested guarantee: **for an L2/L3 task, the worker is never run unless the plan passed review** — the enforcement a nudge cannot give. Use `kyl-run` for any model too weak to obey the nudge (most models worth tiering); the hook then degrades to drift detection. If a model is *also* too weak to execute a senior-approved plan, don't tier it — run the work on the senior directly (see "right-size first").
 
 ## Companion skills — what to install alongside
 
