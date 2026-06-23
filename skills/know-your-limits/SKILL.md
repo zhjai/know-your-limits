@@ -1,6 +1,6 @@
 ---
 name: know-your-limits
-description: 'Use when a CHEAP/small model (gpt-5-mini, Claude Haiku, GLM, DeepSeek, Kimi, etc.) is the primary worker on a long or multi-step task and should escalate the hard parts to a STRONG senior model instead of guessing. Fires on OBJECTIVE tripwires, never on "do you feel unsure" (a weak model won''t notice it is stuck): escalate at the START of a substantial/risky task to review the plan; when the SAME error survives 2 different fix attempts; before any IRREVERSIBLE or wide-blast action (schema/migration/delete/deploy/auth/new-dep); at a phase boundary; and before proposing done on a large/risky diff. Escalation goes through agent-arena (the mechanism); this skill is the POLICY of WHEN. Budget senior calls (they cost money) and send only a minimal evidence packet; the senior replies in a compact schema the worker can act on. If the senior also can''t resolve it, escalate to the HUMAN — do not loop. Not for short tasks where just using the senior outright is cheaper, or trivial reversible steps.'
+description: 'Use when a CHEAP/small model (gpt-5-mini, Claude Haiku, GLM-4.7-Flash, etc.) is the primary worker on a long or multi-step task and should escalate the hard parts to a STRONG senior model instead of guessing; invoke it as "kyl". Fires on OBJECTIVE tripwires, never on "do you feel unsure" (a weak model won''t notice it is stuck): escalate at the START of a substantial/risky task to review the plan; when the SAME error survives 2 different fix attempts; before any IRREVERSIBLE or wide-blast action (schema/migration/delete/deploy/auth/new-dep); at a phase boundary; and before proposing done on a large/risky diff. Escalation goes through agent-arena (the mechanism); this skill is the POLICY of WHEN. Budget senior calls (they cost money) and send only a minimal evidence packet; the senior replies in a compact schema the worker can act on. If the senior also can''t resolve it, escalate to the HUMAN — do not loop. Not for short tasks where just using the senior outright is cheaper, or trivial reversible steps.'
 license: MIT
 metadata:
   version: "0.1.1"
@@ -21,6 +21,9 @@ on the worker asking itself "do I feel unsure?". An overconfident or cheap model
 that *won't* notice it's stuck (the self-detection is self-referential). So the triggers below are
 all things you can *count or observe*, and the most important ones are **mandatory regardless of how
 confident the worker feels**.
+
+**Shorthand:** the user may invoke this skill as **`kyl`** — "use kyl", "apply know-your-limits", and
+"kyl this task" all mean the same thing.
 
 ## When to use
 - A **cheap/small model is the primary worker** on a long, multi-step, or long-running task, run that
@@ -45,7 +48,7 @@ Before adopting this policy, check it actually saves money:
 On **first use in a project**, check if `state/know-your-limits/config.yaml` exists. If not, ask the user these questions directly — no script, no form:
 
 1. **Worker tier** *(skip if `KYL_WORKER_TIER` already set in the environment)*
-   "Are you running a cheap/small model (Haiku, GPT-mini, GLM, etc.) as the primary worker on long tasks? You should also export `KYL_WORKER_TIER=cheap` in your shell — that's what the hook uses to send you reminders."
+   "Are you running a cheap/small model (Haiku, GPT-mini, GLM-4.7-Flash, deepseek-v4-flash, etc.) as the primary worker on long tasks? You should also export `KYL_WORKER_TIER=cheap` in your shell — that's what the hook uses to send you reminders."
 
 2. **Senior model** *(always ask)*
    "Which model should I escalate hard decisions to? (default: cross-vendor — Codex workers → Claude, Claude workers → Codex)"

@@ -19,7 +19,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="MIT License"></a>
 </p>
 
-You run a small/cheap model (gpt-5-mini, Claude Haiku, GLM, DeepSeek, Kimi…) as the primary worker on a long task to save tokens. It does the grunt work fine — until it hits a hard moment (a bug it can't crack, a plan that needs judgment, an irreversible change) and **confidently guesses wrong**, burning hours on a bad path.
+You run a small/cheap model (gpt-5-mini, Claude Haiku, GLM-4.7-Flash, deepseek-v4-flash, kimi-k2.7-code-highspeed…) as the primary worker on a long task to save tokens. It does the grunt work fine — until it hits a hard moment (a bug it can't crack, a plan that needs judgment, an irreversible change) and **confidently guesses wrong**, burning hours on a bad path.
 
 `know-your-limits` is the **policy of WHEN** that worker should escalate the hard parts to a strong senior model. The escalation **mechanism** is [`agent-arena`](https://github.com/zhjai/agent-arena) (it makes the heterogeneous cross-model call); this skill decides *when* to pull that lever, so you pay for the expensive model only at the moments that need it.
 
@@ -178,7 +178,7 @@ Restart or reload your agent session so it rescans skills. Exact paths vary by h
 
 ## Using it — how to trigger
 
-Unlike a one-shot review skill, `know-your-limits` is a **standing policy**: you turn it on once, and then it mostly runs itself. There's no command to type per bug.
+Unlike a one-shot review skill, `know-your-limits` is a **standing policy**: you turn it on once, and then it mostly runs itself. There's no command to type per bug. It answers to its short name **`kyl`**.
 
 **1. Turn it on for the run** — set the tier and start your task with one line:
 
@@ -187,9 +187,11 @@ export KYL_WORKER_TIER=cheap
 ```
 
 ```text
-You're running as a cheap model on a long task. Use know-your-limits:
+You're running as a cheap model on a long task. Use kyl:
 escalate the hard parts to a senior instead of guessing.
 ```
+
+(`kyl` and the full name `know-your-limits` are interchangeable — "use kyl", "apply know-your-limits", "kyl this refactor" all activate it.)
 
 That single instruction (or just the presence of a cheap worker on a long task) makes the agent load the skill. From then on:
 
@@ -203,7 +205,7 @@ This refactor is big and I'm on a budget model — phone a senior when you get s
 ```
 
 ```text
-Run this migration on the cheap model, but know your limits: get a senior review before anything irreversible.
+kyl this migration: run it on the cheap model, but get a senior review before anything irreversible.
 ```
 
 **What you'll see:** when a tripwire trips, the worker stops, sends a minimal evidence packet to the senior via agent-arena, and comes back with a compact `status / diagnosis / next_actions / checks / risks` reply it acts on — exactly the [concrete run](#what-it-does--a-concrete-run) above. On first use in a project it also asks you two quick setup questions (see below).

@@ -17,7 +17,7 @@
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="MIT License"></a>
 </p>
 
-为了省 token，你让一个小模型（gpt-5-mini、Claude Haiku、GLM、DeepSeek、Kimi……）当主力跑长任务。它干杂活没问题——但一旦撞上硬骨头（一个怎么都修不好的 bug、一个需要判断力的方案、一个不可逆的改动），它会**信心十足地猜错方向**，把几个小时的功夫全砸进死路里。
+为了省 token，你让一个小模型（gpt-5-mini、Claude Haiku、GLM-4.7-Flash、deepseek-v4-flash、kimi-k2.7-code-highspeed……）当主力跑长任务。它干杂活没问题——但一旦撞上硬骨头（一个怎么都修不好的 bug、一个需要判断力的方案、一个不可逆的改动），它会**信心十足地猜错方向**，把几个小时的功夫全砸进死路里。
 
 `know-your-limits` 管的是**「什么时候」该把难点升级给高级模型**这条策略。真正发起跨模型调用的**机制**是 [`agent-arena`](https://github.com/zhjai/agent-arena)；本 skill 只负责判断**何时**拉这根升级杆，这样你只在真正需要的关头才为贵的模型买单。
 
@@ -176,7 +176,7 @@ cp -R know-your-limits/skills/know-your-limits "${CODEX_HOME:-$HOME/.codex}/skil
 
 ## 怎么触发它
 
-和那种「调一次审一次」的 skill 不同，`know-your-limits` 是一条**常驻策略**：你打开一次，之后它基本自己跑。没有「每个 bug 都要敲一遍」的命令。
+和那种「调一次审一次」的 skill 不同，`know-your-limits` 是一条**常驻策略**：你打开一次，之后它基本自己跑。没有「每个 bug 都要敲一遍」的命令。它也认简称 **`kyl`**。
 
 **1. 为本次运行打开它**——设好档位，用一句话起头：
 
@@ -185,9 +185,11 @@ export KYL_WORKER_TIER=cheap
 ```
 
 ```text
-你现在是跑长任务的便宜模型。用 know-your-limits：
+你现在是跑长任务的便宜模型。用 kyl：
 难点别瞎猜，升级给高级模型。
 ```
+
+（`kyl` 和全名 `know-your-limits` 通用——「用 kyl」「应用 know-your-limits」「kyl 一下这次重构」都能激活它。）
 
 这一句话（或者干脆就是「便宜模型 + 长任务」这个事实）会让 agent 加载这个 skill。从此之后：
 
@@ -201,7 +203,7 @@ export KYL_WORKER_TIER=cheap
 ```
 
 ```text
-这个迁移用便宜模型跑，但要拎得清：任何不可逆的操作之前先让高级模型审一遍。
+kyl 一下这个迁移：用便宜模型跑，但任何不可逆的操作之前先让高级模型审一遍。
 ```
 
 **你会看到：** 触发条件命中时，工作模型会停下来，通过 agent-arena 给高级模型发一个最小证据包，再带回一个紧凑的 `status / diagnosis / next_actions / checks / risks` 回复并照着执行——就是上面那个[真实例子](#它具体怎么跑一个真实例子)。项目里首次使用时，它还会问你两个快速配置问题（见下文）。
