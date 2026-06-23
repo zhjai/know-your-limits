@@ -126,9 +126,53 @@ output to a file and read back only the digest).
 and surface it to the user with the evidence. Looping a senior on an under-specified or judgment-call
 problem just burns money.
 
+**For long unattended tasks: integrate with experiment-grill-feishu**
+
+If the senior review says `HUMAN_REQUIRED` (needs user judgment) and you're running a long task where
+the user may not be at the keyboard:
+
+1. **Check if `experiment-grill-feishu` skill is available** (installed and configured)
+2. **Send Feishu notification** with:
+   - The escalation trigger (IRREVERSIBLE_GUARD, senior uncertainty, etc.)
+   - Senior's analysis (diagnosis + risks)
+   - Concrete question(s) for the user
+   - Risk level (high for irreversible actions)
+3. **Wait for user reply** (timeout per grill-feishu policy, typically 5-15 min)
+4. **Apply decision:**
+   - User replied → follow their decision
+   - No reply, high-risk → BLOCK (grill-feishu fallback for irreversible actions)
+   - No reply, low-risk → provisional execution (logged, reversible)
+5. **If grill-feishu unavailable** → traditional: checkpoint and block (synchronous wait)
+
+Example:
+```yaml
+# Senior review says "HUMAN_REQUIRED"
+status: blocked
+diagnosis: "Deleting staging DB affects 3 active test runs. Needs user confirmation of scope."
+risks:
+  - "May break ongoing integration tests"
+  - "Recovery requires restore from yesterday's backup (data loss: 8 hours)"
+
+# You call grill-feishu
+notification: "⚠️ IRREVERSIBLE_GUARD: About to delete staging DB. Senior says: affects 3 active runs. Confirm scope?"
+context: <senior's full analysis>
+risk_level: high
+timeout_min: 10
+
+# Outcomes:
+# - User replies "Confirmed, those 3 runs are obsolete" → proceed
+# - No reply after 10 min → grill-feishu fallback: BLOCK (high-risk default)
+```
+
+This closes the gap: "escalate to HUMAN" now has an async path for long tasks. The escalation chain
+becomes: **cheap worker → senior → human (with Feishu notification)**.
+
 ## Composition (this skill owns *when*, not *how* or *done*)
 - **agent-arena** — the escalation *mechanism* (heterogeneous call, independent answers, dissent kept).
   This skill decides *when* to invoke it.
+- **experiment-grill-feishu** — async human escalation for long unattended tasks. When senior says
+  `HUMAN_REQUIRED`, use grill-feishu to notify user via Feishu and wait for reply (with risk-based
+  fallback if no reply). Completes the escalation chain: cheap → senior → human (async).
 - **deliberative-analysis** — a *pre-escalation* local thinking aid: if the hard part is a bad framing /
   narrow option space, expand options first; escalate to a senior only if still stuck. It may precede a
   *reactive* escalation, but it **cannot replace or delay a mandatory** escalation (plan / irreversible /

@@ -162,6 +162,15 @@ The **hook keeps the ledger** outside the model's context (a cheap model forgets
    
    Prevents early reactive calls from blocking mandatory reviews, and makes audit budget an explicit opt-in rather than stealing from rescue capacity.
 
+7. **Integrate experiment-grill-feishu for async human escalation**: when senior review returns `HUMAN_REQUIRED` (e.g., IRREVERSIBLE_GUARD needs judgment, or senior is uncertain), and the user is not at the keyboard:
+   - If `experiment-grill-feishu` skill is available, send Feishu notification with senior's analysis + context
+   - Wait for user reply (timeout per grill-feishu policy, typically 5-15 min)
+   - If user replies: apply their decision
+   - If no reply: apply grill-feishu's risk-based fallback (BLOCK for high-risk irreversible actions, provisional for low-risk)
+   - If grill-feishu unavailable: checkpoint and block (traditional synchronous wait)
+   
+   Closes the gap: currently "escalate to HUMAN" has no async mechanism for long unattended tasks. This makes know-your-limits + grill-feishu a complete escalation chain: cheap → senior → human (with async notification).
+
 ### v0.3.0 (mid-term) — Cross-goal learning
 
 **Prerequisite: a separate cross-goal history layer.** The current per-goal ledger is a single mutable JSON — it cannot support "10+ similar goals." Introduce two layers:
