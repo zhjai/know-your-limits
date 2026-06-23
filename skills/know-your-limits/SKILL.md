@@ -256,6 +256,16 @@ Use **kyl-run for any task on a model too weak to obey the nudge** — which is 
 The hook then degrades to drift detection + telemetry. Without either, the skill runs in a **degraded
 mode** (worker self-reports) and the mandatory escalations are advisory only.
 
+### Delivery beats capability — put the rule in the SYSTEM prompt
+Empirically (deepseek-v4-pro, direct API): given the PLAN_REVIEW rule as a **system-prompt hard rule**
+("your only allowed output is a plan, then STOP and request review"), the model **complied** — plan, no
+code. Given the *same* rule **buried** as a parenthetical note (the way a loaded skill + a mid-stream hook
+nudge actually reaches it), it **ignored it and emitted a full implementation**. So when you can't use
+kyl-run and must rely on the worker self-escalating, **deliver the cheap-worker rule as a top-level system
+instruction**, not merely as a loaded skill or an advisory nudge — weak delivery, not weak capability, is
+why a worker "won't follow the policy". (kyl-run sidesteps this: it gates outside the worker, and when it
+does launch the worker it injects the rule as a system-level constraint.)
+
 ## Setup for cheap workers — preventing context loss
 
 **Problem:** If the user says "you are a cheap model" at session start, but context compaction or long

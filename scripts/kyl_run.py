@@ -114,14 +114,27 @@ def _real_senior_review(plan_text):
     return {"status": (m.group(1).lower() if m else "revise"), "raw": out[-2000:]}
 
 
+# Empirically, weak workers obey a rule stated as a top-level/system constraint but ignore the same
+# rule buried in context. So the execution phase leads with an unmissable rule block, not a buried note.
+_WORKER_RULE = (
+    "[SYSTEM RULE — non-negotiable] You are a cheap worker. A senior has APPROVED the plan below; "
+    "execute it. Before any IRREVERSIBLE action (schema/migration/delete/deploy/auth/new-dep) STOP and "
+    "request a senior review. Do NOT declare the task done without a PRE_DONE_REVIEW. Stay within the "
+    "approved plan; if you must deviate materially, STOP and re-escalate.\n")
+
+
 def _real_worker_exec(task, plan):
-    """Hand the approved task+plan to the cheap worker command from KYL_WORKER_CMD."""
+    """Hand the approved task+plan to the cheap worker command from KYL_WORKER_CMD.
+
+    Leads with _WORKER_RULE so the constraint arrives as a top-level instruction (which weak models
+    obey) rather than a buried note (which they ignore). If KYL_WORKER_SYSTEM_CMD-style routing is
+    available in your wrapper, route _WORKER_RULE into the actual system message for best effect."""
     import subprocess
     cmd = os.environ.get("KYL_WORKER_CMD")
     if not cmd:
         return {"note": "set KYL_WORKER_CMD to the cheap-worker command to actually execute",
                 "approved_task": task}
-    prompt = task + (f"\n\n# Approved plan (senior-reviewed):\n{plan}" if plan else "")
+    prompt = _WORKER_RULE + "\n# Task:\n" + task + (f"\n\n# Approved plan (senior-reviewed):\n{plan}" if plan else "")
     return subprocess.run(cmd, shell=True, input=prompt, text=True).returncode
 
 
