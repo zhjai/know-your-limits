@@ -275,6 +275,33 @@ class KylHook(unittest.TestCase):
         self.assertIn("OSCILLATION", c3)
         self.assertIn("src/model.py", c3)
 
+    def test_plan_review_fires_for_unclassified_cheap_worker(self):
+        # Regression: a weak model that never classified the task left task_class="" so the
+        # L2/L3 nudge could never fire. An unclassified cheap worker about to edit must still be
+        # nudged to classify + plan-review (once, deduped).
+        ledger = os.path.join(tempfile.mkdtemp(), "l.json")
+        env = {"KYL_WORKER_TIER": "cheap"}
+        pre_edit = {"hook_event_name": "PreToolUse", "tool_name": "Edit"}
+
+        _, c1 = run(pre_edit, ledger, env)
+        self.assertIn("PLAN_REVIEW CHECK", c1)            # nudged despite no task_class
+        _, c2 = run(pre_edit, ledger, env)
+        self.assertNotIn("PLAN_REVIEW CHECK", c2)         # deduped — fires once, no spam
+
+    def test_task_class_env_declares_l2_without_model(self):
+        # KYL_TASK_CLASS=L2 must make the strong PLAN_REVIEW fire even with no ledger task_class
+        ledger = os.path.join(tempfile.mkdtemp(), "l.json")
+        env = {"KYL_WORKER_TIER": "cheap", "KYL_TASK_CLASS": "L2"}
+        _, c = run({"hook_event_name": "PreToolUse", "tool_name": "Edit"}, ledger, env)
+        self.assertIn("MANDATORY PLAN_REVIEW", c)
+
+    def test_task_class_env_l1_no_plan_review(self):
+        # An explicitly-small task (L1) declared via env must NOT trigger plan review
+        ledger = os.path.join(tempfile.mkdtemp(), "l.json")
+        env = {"KYL_WORKER_TIER": "cheap", "KYL_TASK_CLASS": "L1"}
+        _, c = run({"hook_event_name": "PreToolUse", "tool_name": "Edit"}, ledger, env)
+        self.assertNotIn("PLAN_REVIEW", c)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

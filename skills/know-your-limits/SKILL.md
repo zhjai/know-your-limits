@@ -251,19 +251,27 @@ grill-run --tier cheap -- codex exec "..."
 ```
 
 The hook reads `KYL_WORKER_TIER` and:
-1. **Nudges mandatory PLAN_REVIEW** (PreToolUse): if cheap worker on L2/L3 task starts editing without
-   plan review, hook issues a strong nudge — no longer relies on model remembering to call the skill.
-   (Note: the hook never blocks; it emits context. Full enforcement comes in v0.2.0's guarded launcher.)
+1. **Nudges mandatory PLAN_REVIEW** (PreToolUse): if a cheap worker starts editing without plan review,
+   the hook nudges. If the task class is **known** L2/L3 it issues a strong nudge that repeats until
+   `plan_reviewed`; if the task is **unclassified** (the weak model never classified — common with very
+   small models) it fires a one-time nudge to classify + plan-review before editing. (Note: the hook
+   never blocks; it emits context. Full enforcement comes in v0.2.0's guarded launcher.)
 2. **Periodic reminder** (every 20 actions): light nudge to use know-your-limits.
 3. **PreCompact reminder**: tells the model "you are cheap" before compaction, reducing forgetting.
 
-**Set task class in ledger:**
+**Declare the task class so PLAN_REVIEW fires reliably on weak models.** A small model often won't invoke
+the skill to classify, so the hook wouldn't know it's L2/L3. Declare it **deterministically at launch**
+with an env var — no model cooperation needed:
 ```bash
-# When starting an L2/L3 task, write to ledger
-echo '{"task_class": "L2", "plan_reviewed": false, "actions": 0}' > state/know-your-limits/ledger.json
+export KYL_WORKER_TIER=cheap
+export KYL_TASK_CLASS=L2          # L0/L1/L2/L3 — the hook treats this as the task class
+codex exec "..."                  # PLAN_REVIEW now nudges before the first edit
 ```
+Or write it to the ledger (equivalent): `echo '{"task_class":"L2","plan_reviewed":false}' > state/know-your-limits/ledger.json`. Env (`KYL_TASK_CLASS`) takes precedence over the ledger.
 
-The hook will nudge PLAN_REVIEW before the first Edit/Write if `plan_reviewed` is false.
+> **If the model is so weak it ignores the nudge too** (the hook can only emit context, not block): don't
+> tier — run planning on the senior directly (see step 0, "right-size first"), or wait for the v0.2.0
+> guarded launcher that can actually reject an unreviewed L2/L3 edit.
 
 ## Do not
 - **Do not gate escalation on the worker's self-assessed confidence** — use the objective tripwires.

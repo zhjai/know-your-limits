@@ -22,6 +22,8 @@ Output (valid on Claude Code AND Codex): a single line of JSON
 Env:
   KYL_LEDGER       path to the ledger JSON (default state/know-your-limits/ledger.json)
   KYL_WORKER_TIER  worker tier (cheap/expensive) — cheap workers get periodic reminders
+  KYL_TASK_CLASS   declare the task class (L0/L1/L2/L3) without the model — makes the mandatory
+                   PLAN_REVIEW nudge fire for weak models that never invoke the skill to classify
   KYL_STALL_N      stall threshold (default 2)
   KYL_OSC_M        oscillation threshold (default 3)
   KYL_SCOPE_K      scope-drift module threshold (default 2)
@@ -42,6 +44,7 @@ OSC_M        = _envint("KYL_OSC_M", 3)
 SCOPE_K      = _envint("KYL_SCOPE_K", 2)
 ACTIONS_A    = _envint("KYL_ACTIONS_A", 40)
 WORKER_TIER  = os.environ.get("KYL_WORKER_TIER", "").lower()  # "cheap" or empty
+TASK_CLASS_ENV = os.environ.get("KYL_TASK_CLASS", "").upper().strip()  # L0/L1/L2/L3 — declares class without the model
 
 # Tools that actually MUTATE a file — only these count toward oscillation/scope. A Read/Grep of the
 # same file 3x must not look like thrashing.
@@ -176,15 +179,28 @@ def main():
         is_mutating = any(m in tool_name for m in _MUTATING_TOOLS)
 
         if WORKER_TIER == "cheap" and is_mutating:
-            task_class = L.get("task_class", "")  # "L1"/"L2"/"L3", set by skill or user
+            # effective class = explicit env declaration (KYL_TASK_CLASS) > ledger > unknown.
+            # The env path lets a launcher declare the class so PLAN_REVIEW fires even if a weak
+            # model never invokes the skill to classify.
+            task_class = TASK_CLASS_ENV or L.get("task_class", "")
             plan_reviewed = L.get("plan_reviewed", False)
 
-            # If L2/L3 task and no plan review yet, FORCE it
             if task_class in ["L2", "L3"] and not plan_reviewed:
+                # known L2/L3, not reviewed → strong nudge (repeats until plan_reviewed)
                 nudges.append(
                     "⚠️ MANDATORY PLAN_REVIEW: You are a cheap worker on an L2/L3 task. "
                     "Before making substantive edits, escalate to agent-arena mode=implementation_plan_review "
                     "to get a senior's review of your plan. Mark ledger['plan_reviewed']=true after escalating.")
+            elif not task_class and not plan_reviewed and "planreview_unclassified" not in L.get("fired", []):
+                # UNCLASSIFIED cheap worker about to edit — the weak model never classified, so the
+                # L2/L3 branch above can't fire. Break that circular dependency: nudge once to classify
+                # and plan-review before editing. Fires once (deduped) so trivial L0/L1 tasks aren't spammed.
+                L.setdefault("fired", []).append("planreview_unclassified")
+                nudges.append(
+                    "⚠️ PLAN_REVIEW CHECK: You are a cheap worker about to edit, and this task is not classified yet. "
+                    "Classify it (L0–L3) per know-your-limits. If it's L2/L3 (long/multi-subsystem) or touches anything "
+                    "irreversible, escalate to agent-arena mode=implementation_plan_review BEFORE continuing, then set "
+                    "ledger['task_class'] and ledger['plan_reviewed']. (Set KYL_TASK_CLASS to declare this up front.)")
 
     elif event == "PostToolUse":
         L["actions"] = L.get("actions", 0) + 1
