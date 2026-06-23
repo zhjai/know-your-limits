@@ -86,8 +86,8 @@ escalation keys off. Incidental replanning or a new subtask does **not** create 
 - **PLAN_REVIEW** — at the START of any L2/L3 task, before real work: senior reviews the plan.
 - **IRREVERSIBLE_GUARD** — before any irreversible / wide-blast action (schema change, migration,
   delete, deploy, auth change, adding a dependency): senior reviews *before* you do it.
-- **PRE_DONE_REVIEW** — before proposing done when the diff is large/risky or the key validation
-  couldn't be run.
+- **PRE_DONE_REVIEW** — before proposing done on any L2/L3 task, regardless of diff size. Also fires
+  on L1 when the diff is large/risky or the key validation couldn't be run.
 
 **Reactive (fire on a counted/observed event, not a feeling):**
 - **STALL_RESCUE** — the **same error fingerprint** survives **2 materially different** fix attempts,
@@ -108,10 +108,11 @@ When calling a single senior, model choice follows task nature: **GPT/Codex for 
 | PLAN_REVIEW | `implementation_plan_review` | heterogeneous | — | Judgment call — framing blind spots matter |
 | IRREVERSIBLE_GUARD | `full_arena` | heterogeneous | — | High stakes, irreversible — independent views catch assumptions |
 | PRE_DONE_REVIEW | `code_review_arena` | heterogeneous | — | Judgment call on completeness |
-| STALL_RESCUE | `solo_red_team` | single senior | **GPT/Codex** | Bounded diagnosis with concrete artifacts — GPT stronger at code/tool execution |
-| OSCILLATION | `solo_red_team` | single senior | **GPT/Codex** | Concrete diagnosis, same reason |
+| STALL_RESCUE | `solo_red_team` | single senior | **GPT/Codex** (strongest available, not current worker) | Bounded diagnosis with concrete artifacts — GPT stronger at code/tool execution |
+| OSCILLATION | `solo_red_team` | single senior | **GPT/Codex** (strongest available, not current worker) | Concrete diagnosis, same reason |
 | SCOPE_DRIFT | `quick_panel` | heterogeneous | — | Scope calls are judgment; fast panel works |
 | CHECKPOINT_DEBT | `quick_panel` | heterogeneous | — | Progress audit; fast panel works |
+| GATE_BLOCK | `solo_red_team` | single senior | **GPT/Codex** (strongest available, not current worker) | Concrete gate failure — diagnose the specific cause, then fix |
 
 Override per-trigger in config under `escalation.mode_preferences`. The default senior model for each trigger can be overridden at init or in config.
 
@@ -140,7 +141,7 @@ Keep it ~800–2000 tokens. If more is needed, send a file/artifact index and le
 
 ### 5. Senior replies in a compact, actionable schema
 ```yaml
-status: proceed | replan | blocked | need_more_evidence
+status: proceed | replan | blocked | need_more_evidence | human_required
 diagnosis: <one sentence>
 next_actions:   # ≤3
   - ...
@@ -149,6 +150,7 @@ checks:         # ≤3 deterministic checks to confirm it worked
 risks:          # ≤2
   - ...
 ```
+`human_required` means the senior cannot resolve it alone — escalate to the human (step 6).
 The worker keeps only this structured outcome + cited artifacts, **never the full senior transcript**
 (it won't fit the cheap model's context, and following the arena context-budget rule, redirect the raw
 output to a file and read back only the digest).
@@ -158,10 +160,9 @@ output to a file and read back only the digest).
 and surface it to the user with the evidence. Looping a senior on an under-specified or judgment-call
 problem just burns money.
 
-**For long unattended tasks: integrate with experiment-grill-feishu** *(roadmap v0.2.0)*
+**For long unattended tasks: use experiment-grill-feishu**
 
-If the senior review says `HUMAN_REQUIRED` (needs user judgment) and you're running a long task where
-the user may not be at the keyboard:
+If the senior review says `human_required` and you're running a long task where the user may not be at the keyboard:
 
 1. **Check if `experiment-grill-feishu` skill is available** (installed and configured)
 2. **Send Feishu notification** with:
@@ -197,17 +198,12 @@ timeout_min: 10
 ```
 
 ### 7. On task completion — notify the user
-When the task is fully done (PRE_DONE_REVIEW passed → findings addressed → completion-gate cleared → "done" declared):
+When PRE_DONE_REVIEW passed and findings are addressed, proceed in order:
+1. completion-gate check
+2. If gate clears: **send fire-and-forget Feishu notification** (if `notifications.completion.enabled: true` and `experiment-grill-feishu` available): task summary, duration, key outcomes, any warnings
+3. Declare done to the user
 
-If `notifications.completion.enabled: true` in config and `experiment-grill-feishu` is available:
-- Send a **completion notification** via Feishu: task summary, duration, key outcomes, any warnings or deferred items
-- This is **fire-and-forget** (no reply expected) — the user just gets told it's done
-
-This closes the loop for long unattended tasks: the same channel used for escalation questions is used for the final completion ping. The full notification flow:
-```
-escalation question  → grill-feishu (async, awaits reply)
-task done            → grill-feishu (fire-and-forget notification)
-```
+Sending notification before declaring done ensures the user is notified even if the model's final message is cut off or not seen.
 
 ## Composition (this skill owns *when*, not *how* or *done*)
 - **agent-arena** — the escalation *mechanism* (heterogeneous call, independent answers, dissent kept).

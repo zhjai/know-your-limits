@@ -7,7 +7,7 @@ worker:
   
 escalation:
   # Senior model to escalate to (or auto-detect for cross-vendor heterogeneity)
-  senior_model: auto-detect  # auto | claude-opus | codex-5.5 | glm-4-plus
+  senior_model: auto-detect  # auto-detect | claude-opus-4-8 | codex-5.5 | glm-4-plus
   
   # Fallback order when escalation fails
   fallback_order:
@@ -37,17 +37,21 @@ escalation:
     STALL_RESCUE:
       mode: solo_red_team
       depth: single_senior
-      senior_model: gpt  # GPT/Codex first for bug diagnosis (tool execution, concrete artifacts)
+      senior_model: best_code_senior  # strongest GPT/Codex-family model available (must be stronger than current worker)
     OSCILLATION:
       mode: solo_red_team
       depth: single_senior
-      senior_model: gpt  # same reason
+      senior_model: best_code_senior  # same reason
     SCOPE_DRIFT:
       mode: quick_panel
       depth: heterogeneous
     CHECKPOINT_DEBT:
       mode: quick_panel
       depth: heterogeneous
+    GATE_BLOCK:
+      mode: solo_red_team
+      depth: single_senior
+      senior_model: best_code_senior  # diagnose the concrete gate failure
   # Global override (uncomment to force all escalations to one depth):
   # default_depth: heterogeneous   # always two agents (max scrutiny)
   # default_depth: single_senior   # always one agent (max speed/cost)
