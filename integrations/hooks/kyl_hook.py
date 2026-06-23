@@ -29,12 +29,23 @@ The ledger path is forced out of any control/ dir so it can never be mistaken fo
 """
 import json, os, pathlib, re, sys, hashlib
 
-STALL_N    = int(os.environ.get("KYL_STALL_N", "2"))
-OSC_M      = int(os.environ.get("KYL_OSC_M", "3"))
-SCOPE_K    = int(os.environ.get("KYL_SCOPE_K", "2"))
-ACTIONS_A  = int(os.environ.get("KYL_ACTIONS_A", "40"))
+def _envint(name, default):
+    # never let a malformed env value crash the hook at import time (would break the host)
+    try:
+        return max(1, int(os.environ.get(name, str(default))))
+    except (TypeError, ValueError):
+        return default
 
-_FAIL = re.compile(r"\btraceback\b|\berror:|\bfatal\b|command failed|exit (?:code |status )?[1-9]|non-zero exit|assertion(?:error)?|\bFAILED?\b|segmentation fault|\bsegfault\b|core dumped|\bKilled\b|\bpanic\b|\bOOM\b|out of memory", re.I)
+STALL_N    = _envint("KYL_STALL_N", 2)
+OSC_M      = _envint("KYL_OSC_M", 3)
+SCOPE_K    = _envint("KYL_SCOPE_K", 2)
+ACTIONS_A  = _envint("KYL_ACTIONS_A", 40)
+
+# Tools that actually MUTATE a file — only these count toward oscillation/scope. A Read/Grep of the
+# same file 3x must not look like thrashing.
+_MUTATING_TOOLS = {"edit", "write", "notebookedit", "multiedit", "create", "update", "apply_patch", "str_replace"}
+
+_FAIL = re.compile(r"\btraceback\b|\berror:|\bfatal\b|command failed|command exited with [1-9]|exit (?:code |status )?[1-9]|non-zero (?:exit|status)|returned non-zero|assertion(?:error)?|\bFAIL(?:ED|URE)?\b|segmentation fault|\bsegfault\b|core dumped|\bKilled\b|\bpanic\b|\bOOM\b|out of memory", re.I)
 _OK   = re.compile(r"\b0 errors?\b|\bno errors?\b|\ball (?:tests? )?pass|\bsuccess\b|\bPASSED\b|\bok\b\s*$", re.I)
 # a "passing check" signal in tool output — resets stall/oscillation/scope counters.
 # Keep markers UNAMBIGUOUS: "green"/"ok" as bare substrings false-reset on "greenfield"/"looks ok",
@@ -51,10 +62,17 @@ def _read_event():
 
 
 def _ledger_path():
-    p = pathlib.Path(os.environ.get("KYL_LEDGER", "state/know-your-limits/ledger.json"))
-    # never let the ledger live under a control/ (authority) dir
-    if "control" in {x.lower() for x in p.parts}:
-        p = pathlib.Path("state/know-your-limits/ledger.json")
+    # The ledger is just a counter file (the user sets KYL_LEDGER). Constrain it so a stray value
+    # can't corrupt authority or climb out of its tree: reject a control/ (authority) segment and
+    # any parent-escape ('..'). Absolute paths are allowed (that's how you point it at your state
+    # dir). Fall back to the default on anything suspicious.
+    default = pathlib.Path("state/know-your-limits/ledger.json")
+    raw = os.environ.get("KYL_LEDGER", "")
+    if not raw:
+        return default
+    p = pathlib.Path(raw)
+    if ".." in p.parts or "control" in {x.lower() for x in p.parts}:
+        return default
     return p
 
 
@@ -96,11 +114,24 @@ def _tool_failed(d):
     return bool(_FAIL.search(resp)) and not _OK.search(resp)
 
 
+def _passed(d):
+    # A genuine *validation* pass (a test/check going green) — this is what resets the "stuck"
+    # counters. NOT just any command exiting 0: a successful file edit (exit 0) must not clear an
+    # oscillation/scope count. So we require a test-shaped pass phrase. The caller also requires
+    # not _tool_failed(d), so a mixed "12 passed ... <traceback>" output won't reset anything.
+    resp = str(d.get("tool_response", "") or d.get("tool_output", ""))
+    return bool(_PASS_CHECK.search(resp))
+
+
 def _tool_text(d):
     return str(d.get("tool_response", "") or d.get("tool_output", "") or "")
 
 
 def _touched_path(d):
+    # only count MUTATING tools — a Read/Grep of the same file 3x is not thrashing
+    name = str(d.get("tool_name") or d.get("name") or "").lower().strip()
+    if name and not any(m in name for m in _MUTATING_TOOLS):
+        return ""
     ti = d.get("tool_input") or {}
     for k in ("file_path", "path", "notebook_path"):
         v = ti.get(k)
@@ -130,9 +161,12 @@ def main():
         L["actions"] = L.get("actions", 0) + 1
         out = _tool_text(d)
 
-        # a passing check resets the "stuck" counters
-        if _PASS_CHECK.search(out):
-            L["errs"], L["files"], L["modules"], L["since_pass"] = {}, {}, [], 0
+        # a passing check resets the "stuck" counters — but only on a GENUINE validation pass
+        # (a test/check going green, not just any exit 0). Never reset when the same call also shows
+        # a failure (mixed "12 passed ... <traceback>" must NOT clear the counters). Clearing `fired`
+        # too starts a fresh epoch, so a file/error that goes wrong AGAIN after a green can re-trigger.
+        if _passed(d) and not _tool_failed(d):
+            L["errs"], L["files"], L["modules"], L["since_pass"], L["fired"] = {}, {}, [], 0, []
         else:
             L["since_pass"] = L.get("since_pass", 0) + 1
 

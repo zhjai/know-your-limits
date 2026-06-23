@@ -3,7 +3,7 @@ name: know-your-limits
 description: 'Use when a CHEAP/small model (gpt-5-mini, Claude Haiku, GLM, DeepSeek, Kimi, etc.) is the primary worker on a long or multi-step task and should escalate the hard parts to a STRONG senior model instead of guessing. Fires on OBJECTIVE tripwires, never on "do you feel unsure" (a weak model won''t notice it is stuck): escalate at the START of a substantial/risky task to review the plan; when the SAME error survives 2 different fix attempts; before any IRREVERSIBLE or wide-blast action (schema/migration/delete/deploy/auth/new-dep); at a phase boundary; and before proposing done on a large/risky diff. Escalation goes through agent-arena (the mechanism); this skill is the POLICY of WHEN. Budget senior calls (they cost money) and send only a minimal evidence packet; the senior replies in a compact schema the worker can act on. If the senior also can''t resolve it, escalate to the HUMAN — do not loop. Not for short tasks where just using the senior outright is cheaper, or trivial reversible steps.'
 license: MIT
 metadata:
-  version: "0.1.0"
+  version: "0.1.1"
   author: zhjai
   tags: "escalation, cost-tiering, cheap-model, senior-model, long-task, agent-arena, know-your-limits"
   related_skills: "agent-arena, deliberative-analysis, agent-completion-gate, agent-lessonbook"
@@ -41,7 +41,15 @@ Before adopting this policy, check it actually saves money:
   needs shell + the senior's CLI + credentials). If it can't, this skill degrades to "flag the moment
   and ask the human" — say so, don't pretend an escalation happened.
 
-### 1. Classify the task (sets the budget + which tripwires are mandatory)
+### 1. Classify the task — ONCE per top-level goal (sets the budget + which tripwires are mandatory)
+**Classify the top-level goal the user accepted, not each subtask.** One classification, one budget,
+one plan review, one final review **per goal**. Subtasks *inherit* the goal's class and share its
+ledger — they do **not** create new phases, restart mandatory reviews, or get their own budget.
+Reclassify only on a **material change** to the goal or its risk class (e.g. the user widens scope, or
+the work newly touches a migration). This single rule is the guard against both failure modes: a
+worker that classifies narrowly to dodge escalation, and one that calls every subtask L2 and burns the
+budget.
+
 - **L0** — single-step, reversible, one clear validation. No tiering.
 - **L1** — ordinary multi-step, bounded, reversible. Tripwires reactive only.
 - **L2** — long-running: many steps / multiple subsystems / no single obvious validation. **Plan review
@@ -49,6 +57,9 @@ Before adopting this policy, check it actually saves money:
 - **L3** — high-risk / hard-to-reverse: schema/API/config contract, auth/security, billing, concurrency,
   migration, deletion, production ops, a new dependency. **Plan review + final review mandatory; lean
   toward escalating sooner.**
+
+**Phases** are the milestones named in the plan review at the start — *that* is what PHASE-boundary
+escalation keys off. Incidental replanning or a new subtask does **not** create a phase.
 
 ### 2. Escalate on these tripwires (objective — not "I feel unsure")
 **Mandatory (fire regardless of confidence):**
@@ -70,12 +81,16 @@ Map each trigger to an agent-arena mode: plan → `implementation_plan_review`; 
 audit/scope → `quick_panel`; pre-done → `code_review_arena`.
 
 ### 3. Budget the senior calls (the whole point is saving money)
-Reserve up front; never let early calls eat the slots you need for planning and final review:
+The budget is **per top-level goal** (shared across all its subtasks), reserved up front; never let
+early calls eat the slots you need for planning and final review:
 - **L1:** ≤1 escalation.
 - **L2:** ≤3, reserve 1 for the final review.
 - **L3:** ≤4, reserve 1 for planning and 1 for the final review.
 - **Dedupe:** same trigger + same error fingerprint + **no new evidence** → do NOT re-escalate. Get new
   evidence first, or escalate to the human.
+- **Budget exhausted but a MANDATORY review is due** (irreversible action / pre-done on a risky diff) →
+  do **not** silently skip it and do **not** proceed unreviewed: **escalate to the human** instead.
+- **Coalesce** several related irreversible actions into one review rather than one call each.
 - (Tune the numbers to your task — these are defaults, not measured constants.)
 
 ### 4. Send a minimal packet (keep the expensive call cheap)
@@ -112,10 +127,14 @@ problem just burns money.
 - **agent-arena** — the escalation *mechanism* (heterogeneous call, independent answers, dissent kept).
   This skill decides *when* to invoke it.
 - **deliberative-analysis** — a *pre-escalation* local thinking aid: if the hard part is a bad framing /
-  narrow option space, expand options first; escalate to a senior only if still stuck. Not the default
-  response to every bug.
+  narrow option space, expand options first; escalate to a senior only if still stuck. It may precede a
+  *reactive* escalation, but it **cannot replace or delay a mandatory** escalation (plan / irreversible /
+  pre-done). Not the default response to every bug.
 - **agent-completion-gate** — still the only thing that can say the work is *actually done*. A
-  PRE_DONE_REVIEW here is **advisory**, never acceptance. A gate BLOCK is a tripwire.
+  PRE_DONE_REVIEW here is **advisory**, never acceptance. Ordering at the end: **PRE_DONE_REVIEW →
+  address its findings → completion-gate → declare done**. A gate BLOCK is a tripwire. If addressing
+  the review's findings produces *new* material change, the pre-done review is stale — re-run it once;
+  don't loop indefinitely.
 - **agent-lessonbook** — record policy misses (escalated too late/early, a threshold that needs tuning,
   a recurring error fingerprint) so the human can adjust.
 

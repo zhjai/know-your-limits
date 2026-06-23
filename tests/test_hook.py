@@ -119,7 +119,31 @@ class KylHook(unittest.TestCase):
         _, c = run(fail, self.ledger)   # 2nd real failure -> should now fire
         self.assertIn("STALL_RESCUE", c)
 
-    def test_ledger_stays_valid_json_under_load(self):
+    def test_mixed_output_does_not_falsely_reset(self):
+        # an early pass-phrase + a later failure in the SAME call must NOT reset the stall counter
+        fail = {"hook_event_name": "PostToolUse", "tool_exit_code": 1, "tool_response": "Error: boom"}
+        run(fail, self.ledger)
+        # mixed: contains '12 passed' but also fails (exit 1)
+        run({"hook_event_name": "PostToolUse", "tool_exit_code": 1,
+             "tool_response": "12 passed\n...\nTraceback: boom"}, self.ledger)
+        _, c = run(fail, self.ledger)
+        self.assertIn("STALL_RESCUE", c)   # never reset -> 3 fails -> fired
+
+    def test_fail_word_forms(self):
+        # FAIL / FAILURE / non-zero status text must count as failures (regression: \bFAILED?\b)
+        for resp in ["FAIL: test_x", "build FAILURE", "returned non-zero status"]:
+            ledger = os.path.join(tempfile.mkdtemp(), "l.json")
+            ev = {"hook_event_name": "PostToolUse", "tool_response": resp}  # no exit code -> text path
+            run(ev, ledger)
+            _, c2 = run(ev, ledger)
+            self.assertIn("STALL_RESCUE", c2, f"{resp!r} should count as a failure")
+
+    def test_clean_pass_still_resets(self):
+        fail = {"hook_event_name": "PostToolUse", "tool_exit_code": 1, "tool_response": "Error: boom"}
+        run(fail, self.ledger)
+        run({"hook_event_name": "PostToolUse", "tool_exit_code": 0, "tool_response": "5 passed"}, self.ledger)
+        _, c = run(fail, self.ledger)   # reset happened -> only 1 fail since -> no fire
+        self.assertNotIn("STALL_RESCUE", c)
         # many distinct errors must not corrupt the ledger (regression: JSON string truncation)
         for i in range(300):
             run({"hook_event_name": "PostToolUse", "tool_exit_code": 1,
@@ -127,6 +151,45 @@ class KylHook(unittest.TestCase):
         # ledger must still parse
         with open(self.ledger) as fh:
             json.load(fh)   # raises if corrupt
+
+    def test_fired_clears_on_pass_so_later_trigger_can_refire(self):
+        # after a green, the same file going wrong again must be able to re-trigger oscillation
+        ed = {"hook_event_name": "PostToolUse", "tool_name": "Edit", "tool_exit_code": 0,
+              "tool_input": {"file_path": "src/m.py"}, "tool_response": "edited"}
+        run(ed, self.ledger); run(ed, self.ledger)
+        _, c = run(ed, self.ledger)
+        self.assertIn("OSCILLATION", c)                       # fired once
+        run({"hook_event_name": "PostToolUse", "tool_name": "Bash", "tool_exit_code": 0,
+             "tool_response": "5 passed"}, self.ledger)        # green -> new epoch, fired cleared
+        run(ed, self.ledger); run(ed, self.ledger)
+        _, c2 = run(ed, self.ledger)
+        self.assertIn("OSCILLATION", c2)                      # can fire again, not suppressed forever
+
+    def test_reads_do_not_count_as_oscillation(self):
+        # reading the same file repeatedly is not thrashing
+        rd = {"hook_event_name": "PostToolUse", "tool_name": "Read", "tool_exit_code": 0,
+              "tool_input": {"file_path": "src/m.py"}, "tool_response": "contents"}
+        c = ""
+        for _ in range(5):
+            _, c = run(rd, self.ledger)
+        self.assertNotIn("OSCILLATION", c)
+
+    def test_bad_env_does_not_crash(self):
+        # a malformed threshold env must not break the host (regression: int() at import)
+        env = dict(os.environ, KYL_LEDGER=self.ledger, KYL_STALL_N="not-a-number")
+        p = subprocess.run([sys.executable, HOOK],
+                           input=json.dumps({"hook_event_name": "PostToolUse", "tool_response": "x"}),
+                           capture_output=True, text=True, env=env)
+        self.assertEqual(p.returncode, 0)
+
+    def test_ledger_dotdot_path_rejected(self):
+        # a '..' escape in KYL_LEDGER must fall back to default, not write outside the tree
+        env = dict(os.environ, KYL_LEDGER="../../escape/ledger.json")
+        p = subprocess.run([sys.executable, HOOK], cwd=self.dir,
+                           input=json.dumps({"hook_event_name": "PostToolUse", "tool_response": "x"}),
+                           capture_output=True, text=True, env=env)
+        self.assertEqual(p.returncode, 0)
+        self.assertFalse(os.path.exists(os.path.join(self.dir, "..", "..", "escape", "ledger.json")))
 
 
 if __name__ == "__main__":

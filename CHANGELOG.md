@@ -1,5 +1,16 @@
 # Changelog
 
+## v0.1.1
+
+- **Hardened over a 3-block heterogeneous Codex arena review of the actual implementation** (the v0.1.0 review had been a self-audit because the endpoint was timing out; re-run here on a working endpoint via stdin to dodge the long-argv stall). Fixes:
+  - **Hook — failure/pass detection:** `\bFAILED?\b` matched `FAILE` but not `FAIL`; now `FAIL(?:ED|URE)?` plus `non-zero status` / `command exited with N`. A passing check no longer resets the stuck counters from **mixed output** (an early "12 passed" before a later traceback) — reset requires a test-shaped pass AND no failure in the same call. A successful file edit (exit 0) no longer counts as a validation pass.
+  - **Hook — `fired` dedup bug (most important):** a passing check cleared the counters but not the `fired` list, so a file/error that went wrong *again* after a green was suppressed forever. `fired` is now cleared on a genuine pass (fresh epoch).
+  - **Hook — reads counted as edits:** oscillation/scope now only count **mutating** tools (Edit/Write/apply_patch/…), not repeated Reads of the same file.
+  - **Hook — host safety:** a malformed threshold env (`KYL_STALL_N=abc`) crashed the hook at import (outside the try/except) → now parsed safely. `KYL_LEDGER` with `..` escape rejected (falls back to default); `control/` already rejected.
+  - **SKILL.md — scope-boundary (biggest design risk):** classification, budget, plan review, and final review are now explicitly **once per top-level goal**; subtasks inherit and don't re-trigger. Phases defined as plan milestones. Budget-exhausted-but-mandatory-review-due → escalate to the human. Ordering pinned: PRE_DONE_REVIEW → fix → completion-gate → done; deliberative-analysis can't replace a mandatory escalation.
+- Tests: 20 (was 11) — added regressions for every fix above.
+
+
 ## v0.1.0
 
 - Initial preview of `know-your-limits`: the **policy of WHEN** a cheap primary worker (gpt-5-mini, Claude Haiku, GLM, DeepSeek, Kimi…) on a long task should escalate the hard parts to a strong senior model, routed through [`agent-arena`](https://github.com/zhjai/agent-arena) (the mechanism).
