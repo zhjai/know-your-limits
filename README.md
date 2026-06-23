@@ -20,6 +20,7 @@ So escalation fires on **objective, observable events** instead:
 | **STALL_RESCUE** | the same error survives 2 different fix attempts | stop guessing, get a root-cause |
 | **OSCILLATION** | same file edited 3× with no passing check | the approach is wrong, not the code |
 | **SCOPE_DRIFT** | touched 2+ unplanned modules before any check passes | confirm scope before spreading |
+| **CHECKPOINT_DEBT** | ≥40 actions since phase start / last checkpoint, no checkpoint passed | senior audit to confirm still on track |
 | **GATE_BLOCK** | an [`agent-completion-gate`](https://github.com/zhjai/agent-completion-gate) check returns BLOCKED | fix the real cause |
 
 The **mandatory** ones don't depend on the worker noticing anything — they fire on the task class and the action type. The **reactive** ones are *counted by a hook*, not by the model (a cheap model mis-counts its own attempts).
@@ -101,6 +102,7 @@ We surveyed model routing / fallback / escalation systems to understand what exi
 - **STALL:** same error fingerprint survives 2 fix attempts (the hook counts this, not the model)
 - **OSCILLATION:** same file edited 3× with no passing check
 - **SCOPE_DRIFT:** touched 2+ unplanned modules before any check passes
+- **CHECKPOINT_DEBT:** ≥40 actions with no checkpoint passed (two-stage: 20 = nudge, 40 = audit)
 - **Mandatory:** plan review at start / irreversible-action guard / pre-done review (fire regardless of model confidence)
 
 The **hook keeps the ledger** outside the model's context (a cheap model forgets/mis-counts its own attempts across compaction). The **skill is the policy** (when to escalate), **agent-arena is the mechanism** (how to call the senior).
@@ -130,6 +132,15 @@ The **hook keeps the ledger** outside the model's context (a cheap model forgets
 3. **~~Verbalized confidence~~** — **removed from v0.2.0**. Arena review found this is a Trojan horse: "I think / probably" measures writing style and model family, not calibrated uncertainty (cautious models false-positive, overconfident models false-negative). It contradicts the core "objective tripwires" principle. Demoted to optional telemetry (not policy) for future calibration experiments.
 
 4. **Explicit `goal_id` tracking**: ledger and launcher use a stable goal identifier so budgets don't leak across goals and dedup works correctly.
+
+5. **Formalize CHECKPOINT_DEBT tripwire** (already exists in code, now documented): two-stage escalation at 20 actions (local nudge, free) and 40 actions (senior audit, consumes audit budget). Only fires for L2/L3 tasks with plan-defined checkpoints. More accurate name than PROGRESS_DEBT.
+
+6. **Split budget pools**: separate mandatory / rescue / audit pools instead of a single shared cap:
+   - **Mandatory pool**: plan review + irreversible guards + pre-done review (always funded)
+   - **Rescue pool**: stall / oscillation / scope drift (opt-in, default budget)
+   - **Audit pool**: checkpoint debt + optional phase reviews (opt-in, 0 by default, max 1 call per goal, only for tasks >60min estimated duration)
+   
+   Prevents early reactive calls from blocking mandatory reviews, and makes audit budget an explicit opt-in rather than stealing from rescue capacity.
 
 ### v0.3.0 (mid-term) — Cross-goal learning
 

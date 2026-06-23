@@ -74,6 +74,9 @@ escalation keys off. Incidental replanning or a new subtask does **not** create 
   or 3 non-improving reruns. (The hook counts this for you; see Reliability.)
 - **OSCILLATION** — the same file/function is materially edited 3+ times with no validation improvement.
 - **SCOPE_DRIFT** — you've touched 2+ modules you didn't plan to, before the first acceptance check passes.
+- **CHECKPOINT_DEBT** — ≥40 substantive tool actions since phase start or last checkpoint, with no
+  plan-defined checkpoint passed yet. Two-stage: 20 actions = local nudge (free), 40 actions = senior
+  audit (consumes audit budget). Only fires for L2/L3 tasks with plan-defined checkpoints.
 - **GATE_BLOCK** — an [`agent-completion-gate`](https://github.com/zhjai/agent-completion-gate) check
   returns BLOCKED → escalate to fix the real cause, don't loosen the check.
 

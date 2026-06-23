@@ -74,12 +74,12 @@ class KylHook(unittest.TestCase):
             _, c = run(ed, self.ledger)
         self.assertIn("SCOPE_DRIFT", c)
 
-    def test_progress_debt(self):
+    def test_checkpoint_debt(self):
         ed = {"hook_event_name": "PostToolUse", "tool_exit_code": 0, "tool_response": "working"}
         c = ""
         for _ in range(40):
             _, c = run(ed, self.ledger, {"KYL_ACTIONS_A": "40"})
-        self.assertIn("PROGRESS_DEBT", c)
+        self.assertIn("CHECKPOINT_DEBT", c)
 
     def test_precompact_reminds_about_ledger(self):
         _, c = run({"hook_event_name": "PreCompact"}, self.ledger)

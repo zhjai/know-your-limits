@@ -9,10 +9,10 @@ worker to escalate via agent-arena. It NEVER makes the senior call, never blocks
 task is done, and exits 0 on bad input.
 
 Tripwires it can observe deterministically (no model self-report needed):
-  - STALL_RESCUE   : same error fingerprint survives N (default 2) failing tool results
-  - OSCILLATION    : same file materially edited M (default 3) times with no passing check between
-  - SCOPE_DRIFT    : >K (default 2) distinct modules touched before any passing check
-  - PROGRESS_DEBT  : >A (default 40) tool actions with no passing check observed
+  - STALL_RESCUE     : same error fingerprint survives N (default 2) failing tool results
+  - OSCILLATION      : same file materially edited M (default 3) times with no passing check between
+  - SCOPE_DRIFT      : >K (default 2) distinct modules touched before any passing check
+  - CHECKPOINT_DEBT  : >A (default 40) tool actions with no passing check observed
 The MANDATORY tripwires (PLAN_REVIEW at start, IRREVERSIBLE_GUARD, PRE_DONE_REVIEW) are the skill's
 job — they don't depend on counting and shouldn't be faked by a hook.
 
@@ -24,7 +24,7 @@ Env:
   KYL_STALL_N      stall threshold (default 2)
   KYL_OSC_M        oscillation threshold (default 3)
   KYL_SCOPE_K      scope-drift module threshold (default 2)
-  KYL_ACTIONS_A    progress-debt action threshold (default 40)
+  KYL_ACTIONS_A    checkpoint-debt action threshold (default 40)
 The ledger path is forced out of any control/ dir so it can never be mistaken for authority.
 """
 import json, os, pathlib, re, sys, hashlib
@@ -200,11 +200,11 @@ def main():
                     f"SCOPE_DRIFT: you've touched {len(L['modules'])} modules ({', '.join(L['modules'][:5])}) "
                     "before any passing check. Confirm scope with a senior (quick_panel) before spreading further.")
 
-        # PROGRESS_DEBT: many actions, no pass
+        # CHECKPOINT_DEBT: many actions, no pass
         if L.get("since_pass", 0) >= ACTIONS_A and "debt" not in L.get("fired", []):
             L.setdefault("fired", []).append("debt")
             nudges.append(
-                f"PROGRESS_DEBT: {L['since_pass']} actions with no passing check. "
+                f"CHECKPOINT_DEBT: {L['since_pass']} actions with no passing check. "
                 "Do a senior audit (quick_panel): are you still on the right track, or drifting?")
 
     elif event == "PreCompact":
