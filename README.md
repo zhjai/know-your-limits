@@ -113,17 +113,47 @@ The **hook keeps the ledger** outside the model's context (a cheap model forgets
 
 ## Roadmap: what we're adding based on this research
 
-### v0.2.0 (short-term)
-1. **Hook-enforced budget** (currently advisory): ledger tracks `senior_calls: {plan:1, stall_fp:1, ...}`. When exhausted but a mandatory review is due, refuse and escalate to human (no silent skip).
-2. **Escalation packet deduplication**: ledger records recent packet fingerprints (hash + timestamp). Same hash within 5 minutes → skip (avoid redundant senior calls on identical evidence).
-3. **Verbalized confidence as auxiliary signal** (not sole trigger): when STALL fires and the worker's output contains "I think / probably / might be", lower the threshold or fire immediately (complement, not replace, the objective tripwire).
-4. **Integration with agent-lessonbook**: when the same `diagnosis` from a senior appears 3+ times, prompt "this should be a lesson now" so future cheap workers can read it without escalating.
+### v0.2.0 (short-term) — Hardened enforcement
 
-### v0.3.0 (mid-term exploration)
-1. **Hybrid static + dynamic**: if the user has run 10+ similar goals, offline-learn (FrugalGPT style) "this task class typically stalls at step X" and pre-allocate budget accordingly.
-2. **Tiered quality targets**: not just "stuck → escalate", but also "budget nearly gone → downgrade" (e.g. from deliberative-analysis back to direct fix, trading thoroughness for cost).
+**Core fix: move from advisory to enforced budgeting.** Codex arena review found that the current design has no enforcement point — the hook observes calls after they happen, and worker self-report is untrustworthy.
 
-These stay true to the core principle: **objective, model-external tripwires**. We're adding smarter budgeting and historical learning, not replacing tripwires with self-assessment.
+1. **Guarded launcher** (`kyl-escalate`): introduces a control point (like LiteLLM's request gateway) that wraps agent-arena calls. The launcher:
+   - Accepts `goal_id`, `request_id`, trigger, mode, and packet
+   - Atomically reserves a budget slot before calling the senior
+   - Records state: `pending → started → completed/failed/unknown`
+   - Uses `request_id` as the idempotency key
+   - Returns `HUMAN_REQUIRED` when a mandatory review cannot be funded (no silent skip)
+   - Enforcement mode: `guarded` (can reject calls) or `advisory` (can only log)
+
+2. **Evidence-aware deduplication**: hash includes `goal_id + trigger + mode + sorted evidence digests + normalized questions`. Skip only when an equivalent request is pending or already answered AND no evidence revision occurred. Time windows don't define equivalence — evidence changes do.
+
+3. **~~Verbalized confidence~~** — **removed from v0.2.0**. Arena review found this is a Trojan horse: "I think / probably" measures writing style and model family, not calibrated uncertainty (cautious models false-positive, overconfident models false-negative). It contradicts the core "objective tripwires" principle. Demoted to optional telemetry (not policy) for future calibration experiments.
+
+4. **Explicit `goal_id` tracking**: ledger and launcher use a stable goal identifier so budgets don't leak across goals and dedup works correctly.
+
+### v0.3.0 (mid-term) — Cross-goal learning
+
+**Prerequisite: a separate cross-goal history layer.** The current per-goal ledger is a single mutable JSON — it cannot support "10+ similar goals." Introduce two layers:
+- **Per-goal ledger**: real-time enforcement (current)
+- **Append-only event stream** (`state/know-your-limits/history.jsonl`): cross-goal, sanitized, durable
+
+Minimum events: `goal_started(task_class, risk_class)`, `phase_started`, `tripwire_fired`, `escalation_completed(cost, diagnosis_code, outcome)`, `goal_completed`.
+
+1. **Descriptive priors, not learned routing**: Start with aggregate stats ("6/12 repo migrations triggered STALL during validation") rather than training on 10 samples (insufficient for credible prediction). Offline learning becomes viable only after held-out evaluation is possible.
+
+2. **Structured diagnosis for lesson recurrence**: Extend senior reply schema with `diagnosis: {code, taxonomy_version, component, summary}`. Hook matches by code (not free-text). Create a lesson candidate only after the same versioned code appears across ≥3 distinct goals, was followed by successful resolution, and repeated calls in one stuck loop count once. Requires cross-goal history + human review before promotion to `control/lessons/`.
+
+3. **Procedure tiers** (renamed from "tiered quality"): Budget pressure may remove optional deliberation or audits, but never acceptance checks, mandatory reviews, irreversible-action guards, or the human backstop. Modes:
+   - `THOROUGH`: local deliberation + optional senior audit
+   - `BALANCED`: direct implementation + targeted checks
+   - `DIRECT`: direct implementation + mandatory validation only
+   - `HUMAN_REQUIRED`: continuation unsafe or unfunded
+   
+   Measure with ablation: does DIRECT actually save money, or do increased retries trigger more senior calls?
+
+**Boundary preserved:** trigger hook = deterministic counters (fail-open); guarded launcher = authorization + accounting (fail-closed for mandatory); models = proposals; human = final authority.
+
+These stay true to the core principle: **objective, model-external tripwires**. We're adding enforcement infrastructure and cross-goal observability, not replacing tripwires with self-assessment.
 
 ## Status
 
