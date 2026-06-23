@@ -11,7 +11,7 @@ Checks:
 
 Outputs recommendations for missing pieces.
 """
-import json, os, pathlib, subprocess, sys
+import json, os, pathlib, sys
 
 def check_skill(name):
     # Check if skill is in ~/.agent-skills/
