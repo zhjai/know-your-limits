@@ -51,7 +51,7 @@ On **first use in a project**, check if `state/know-your-limits/config.yaml` exi
    "Are you running a cheap/small model (Haiku, gpt5.4-mini, GLM-4.7-Flash, deepseek-v4-flash, etc.) as the primary worker on long tasks? You should also export `KYL_WORKER_TIER=cheap` in your shell — that's what the hook uses to send you reminders."
 
 2. **Senior model** *(always ask)*
-   "When the cheap worker gets stuck, which **strong** model should it ask for help — e.g. Claude Opus, or GPT-5/Codex? You can just say **'auto'** and I'll pick a different model family than your worker (a different family catches mistakes your own model is blind to — Codex worker → Claude, Claude worker → Codex). **Any provider quirks or fallbacks?** (e.g. 'codex uses my sakura886 endpoint; if codex is unavailable use the codex-official CLI / Plus channel') — I'll record it verbatim in `escalation.notes` and honor it when invoking the senior, rather than forcing it into a rigid field."
+   "When the cheap worker gets stuck, which **strong** model should it ask for help — e.g. Claude Opus, or GPT-5/Codex? You can just say **'auto'** and I'll pick a different model family than your worker (a different family catches mistakes your own model is blind to — Codex worker → Claude, Claude worker → Codex). **Any provider quirks or fallbacks?** (e.g. 'codex uses my xxx endpoint; if codex is unavailable use the codex-official CLI / Plus channel') — I'll record it verbatim in `escalation.notes` and honor it when invoking the senior, rather than forcing it into a rigid field."
 
 3. **Feishu notifications** *(only if `experiment-grill-feishu` skill is detected as installed)*
    "experiment-grill-feishu is installed. Do you want task completion and escalation notifications sent to Feishu?"
@@ -119,7 +119,7 @@ When calling a single senior, model choice follows task nature: **GPT/Codex for 
 
 Override per-trigger in config under `escalation.mode_preferences`. The default senior model for each trigger can be overridden at init or in config.
 
-**Before invoking the senior, read `escalation.notes` and honor it.** It is free-form provider guidance the user wrote at init (endpoint quirks, CLI fallbacks, channel preferences) — e.g. "codex uses the sakura886 endpoint; if codex is unavailable, fall back to the codex-official CLI (Plus channel)." Apply it flexibly: if the configured senior CLI is unavailable (command missing / endpoint down / model-unavailable), follow the note's fallback before degrading to the human tier in `fallback_order`.
+**Before invoking the senior, read `escalation.notes` and honor it.** It is free-form provider guidance the user wrote at init (endpoint quirks, CLI fallbacks, channel preferences) — e.g. "codex uses the xxx endpoint; if codex is unavailable, fall back to the codex-official CLI (Plus channel)." Apply it flexibly: if the configured senior CLI is unavailable (command missing / endpoint down / model-unavailable), follow the note's fallback before degrading to the human tier in `fallback_order`.
 
 ### 3. Budget the senior calls (the whole point is saving money)
 The budget is **per top-level goal** (shared across all its subtasks), reserved up front; never let

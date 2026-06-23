@@ -20,7 +20,7 @@ escalation:
   # fallbacks, channel preferences. The agent handles it flexibly rather than parsing a schema.
   notes: |
     # Example:
-    # Primary codex runs on the sakura886 endpoint.
+    # Primary codex runs on the xxx endpoint.
     # If codex is unavailable, fall back to the codex-official CLI (Plus channel).
   
   # Arena mode preferences: adaptive by default (not all escalations need two agents)
