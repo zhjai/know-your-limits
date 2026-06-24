@@ -113,7 +113,7 @@ def main():
         print(f"✅ Hook wired: {hook_wired}")
     else:
         print("⚠️  Hook: not wired (reactive tripwires won't fire reliably)")
-        warnings.append("Wire hook: see integrations/claude-code/settings.hooks.json or integrations/codex/hooks.json")
+        warnings.append("Wire hook: see hooks/claude-code.settings.json or hooks/codex.hooks.json")
     
     # 5. Check KYL_WORKER_TIER
     worker_tier = check_env_var("KYL_WORKER_TIER")

@@ -5,7 +5,7 @@ Run: python3 tests/test_hook.py    (exit 0 = all pass)
 """
 import json, os, subprocess, sys, tempfile, pathlib, unittest
 
-HOOK = str(pathlib.Path(__file__).resolve().parents[1] / "integrations" / "hooks" / "kyl_hook.py")
+HOOK = str(pathlib.Path(__file__).resolve().parents[1] / "skills" / "know-your-limits" / "kyl_hook.py")
 
 
 def run(event, ledger, env_extra=None):

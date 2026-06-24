@@ -67,7 +67,7 @@ After writing the config, **auto-check hook wiring**: if the hook is not found i
 
 Budget limits default to `L1:1 / L2:3 / L3:4` — mention in the post-init summary that these are editable in `config.yaml` once the user has seen a few escalations.
 
-> For a bulk dependency check (agent-arena, hook wired, env vars), the optional utility `scripts/kyl_doctor.py` is available, but it is not part of the initialization flow.
+> For a bulk dependency check (agent-arena, hook wired, env vars), the optional utility `kyl_doctor.py` is available, but it is not part of the initialization flow.
 
 ### 1. Classify the task — ONCE per top-level goal (sets the budget + which tripwires are mandatory)
 **Classify the top-level goal the user accepted, not each subtask.** One classification, one budget,
@@ -255,12 +255,12 @@ A cheap worker **cannot reliably maintain the counters** the reactive tripwires 
 attempts, rationalizes "this attempt was different", loses track across compaction). The setup:
 
 1. **The skill (policy)** — *when* to escalate. Read by the model; a weak model may not follow it.
-2. **The thin hook** ([`integrations/`](integrations/)) — keeps the escalation ledger and **nudges**
+2. **The thin hook** (the bundled `kyl_hook.py`) — keeps the escalation ledger and **nudges**
    when a tripwire trips. **It only emits context; it cannot block, cannot make the senior call, cannot
    stop a model that ignores it.** So a nudge is *advisory*, not enforcement. A "do not act before
    PLAN_REVIEW" guarantee is **impossible to reach by nudging** — over a long task the chance of
    compliance compounds toward zero.
-3. **The guarded launcher** [`scripts/kyl_run.py`](scripts/kyl_run.py) (`kyl-run`) — **the only layer
+3. **The guarded launcher** [`kyl_run.py`](kyl_run.py) (`kyl-run`) — **the only layer
    that actually enforces.** It moves the gate *out of the worker*: classifies the task (unknown → L2),
    runs the PLAN_REVIEW (and the done-review) as a **precondition**, and launches the write-capable
    worker phase **only if approved**. Both gates run a **real heterogeneous agent-arena review — Claude

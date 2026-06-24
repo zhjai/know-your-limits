@@ -8,7 +8,7 @@ Run: python3 tests/test_kyl_run.py   (exit 0 = all pass)
 """
 import os, sys, json, tempfile, pathlib, unittest
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "scripts"))
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1] / "skills" / "know-your-limits"))
 import kyl_run  # noqa: E402
 
 

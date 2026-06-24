@@ -52,7 +52,7 @@ So escalation fires on **objective, observable events** instead:
 
 The **mandatory** ones fire on the task class and action type, not on the worker noticing. The **reactive** ones are *counted by a hook*, not by the model (a cheap model mis-counts its own attempts).
 
-> **Nudge vs enforce — read this.** The hook can only *nudge* (inject context); it cannot block an edit or force the senior call, so a model weak enough to need tiering can ignore it. To actually **enforce** mandatory PLAN_REVIEW, run tasks through the guarded launcher [`kyl-run`](scripts/kyl_run.py): it classifies the task, runs the senior plan-review as a **precondition**, and launches the write-capable worker **only if the plan is approved**. The skill+hook alone are advisory; `kyl-run` is the gate. See [Enforcement](#enforcement--kyl-run-the-guarded-launcher).
+> **Nudge vs enforce — read this.** The hook can only *nudge* (inject context); it cannot block an edit or force the senior call, so a model weak enough to need tiering can ignore it. To actually **enforce** mandatory PLAN_REVIEW, run tasks through the guarded launcher [`kyl-run`](skills/know-your-limits/kyl_run.py): it classifies the task, runs the senior plan-review as a **precondition**, and launches the write-capable worker **only if the plan is approved**. The skill+hook alone are advisory; `kyl-run` is the gate. See [Enforcement](#enforcement--kyl-run-the-guarded-launcher).
 
 ## What it does — a concrete run
 
@@ -86,7 +86,7 @@ The worker applies the fix, the test passes, the hook resets the stall counter �
 
 A cheap worker can't reliably track "have I failed the same way twice?" across a long session — it mis-counts, rationalizes ("this attempt was different"), and loses the count when context compacts. So the reliable setup is **the skill + a thin hook**:
 
-- The **hook** ([`integrations/hooks/kyl_hook.py`](integrations/hooks/kyl_hook.py)) keeps a small on-disk **escalation ledger** (attempts per error, files touched, modules, actions, budget) from real lifecycle events, and **nudges escalation when a tripwire trips**. It never makes the senior call, never blocks, never marks anything done, and exits 0 on bad input.
+- The **hook** ([`skills/know-your-limits/kyl_hook.py`](skills/know-your-limits/kyl_hook.py)) keeps a small on-disk **escalation ledger** (attempts per error, files touched, modules, actions, budget) from real lifecycle events, and **nudges escalation when a tripwire trips**. It never makes the senior call, never blocks, never marks anything done, and exits 0 on bad input.
 - The **skill** owns the mandatory escalations (start / irreversible / pre-done) — the backstop that works even with no hook.
 
 Without the hook it still runs in a **degraded mode** (the worker self-reports a one-line status each step), but the mandatory tripwires remain *advisory*.
@@ -95,7 +95,7 @@ Without the hook it still runs in a **degraded mode** (the worker self-reports a
 
 The skill and hook are the policy and the counters; **neither can stop a weak worker that ignores them.** A non-blocking hook injects context — it can't reject an edit or force the senior call. Over a long task, "please review the plan first" complied-with-probability-<1 compounds toward zero. So mandatory PLAN_REVIEW needs a layer that gates *outside* the worker.
 
-[`scripts/kyl_run.py`](scripts/kyl_run.py) is that layer:
+[`skills/know-your-limits/kyl_run.py`](skills/know-your-limits/kyl_run.py) is that layer:
 
 ```bash
 kyl-run "build the SFT+GRPO+eval pipeline"
@@ -144,12 +144,14 @@ Swap `-a claude-code` for `-a codex` (or another agent), or omit `-a` to choose 
 
 > Step 2 is not optional in practice: `know-your-limits` is the *policy of when*; `agent-arena` is the *mechanism of how*. With only step 1 installed, every escalation degrades to "stop and ask the human."
 
+> **The hook and launcher ship *inside* the skill folder**, so `npx skills add` installs them too — after install they live at `<skill-dir>/kyl_hook.py` and `<skill-dir>/kyl_run.py` (e.g. `~/.claude/skills/know-your-limits/`). In the hook config below, `<kyl>` = that installed skill directory.
+
 ### Wire the hook (for reliable reactive tripwires)
 
-The reactive tripwires (STALL / OSCILLATION / SCOPE_DRIFT / CHECKPOINT_DEBT) are **counted by the hook**, not the model. Merge the example into your host's hook config and fix the path:
+The reactive tripwires (STALL / OSCILLATION / SCOPE_DRIFT / CHECKPOINT_DEBT) are **counted by the hook**, not the model. Merge the example into your host's hook config and set `<kyl>` to your installed skill dir:
 
-- Claude Code: [`integrations/claude-code/settings.hooks.json`](integrations/claude-code/settings.hooks.json)
-- Codex: [`integrations/codex/hooks.json`](integrations/codex/hooks.json)
+- Claude Code: [`skills/know-your-limits/hooks/claude-code.settings.json`](skills/know-your-limits/hooks/claude-code.settings.json)
+- Codex: [`skills/know-your-limits/hooks/codex.hooks.json`](skills/know-your-limits/hooks/codex.hooks.json)
 
 On first use the skill auto-checks whether the hook is wired and offers to add it if missing.
 
@@ -168,7 +170,7 @@ This enables a strong PLAN_REVIEW nudge before the first edit on L2/L3 tasks, a 
 
 ```bash
 cd <know-your-limits-repo>
-python3 scripts/kyl_doctor.py
+python3 skills/know-your-limits/kyl_doctor.py
 ```
 
 Verifies: skills installed (know-your-limits, agent-arena **required**; grill-feishu optional), hook wired, `KYL_WORKER_TIER` set, config present.
@@ -238,7 +240,7 @@ On **first use in a project**, the agent asks you a couple of questions and writ
 2. **Senior model** *(always asked)* — when the worker gets stuck, which **strong** model should it ask for help (e.g. Claude Opus, GPT-5/Codex)? Say **`auto`** to let it pick a different model family than your worker — a different family catches mistakes your own model is blind to (Codex worker → Claude, Claude worker → Codex).
 3. **Feishu notifications** *(only if `experiment-grill-feishu` is detected)* — want completion + escalation pings?
 
-Then it auto-checks the hook wiring and offers to add it if missing. Budget limits default to `L1:1 / L2:3 / L3:4`. Edit `config.yaml` any time — see [`examples/config.example.yaml`](examples/config.example.yaml) for all options, including per-trigger arena mode and participant depth.
+Then it auto-checks the hook wiring and offers to add it if missing. Budget limits default to `L1:1 / L2:3 / L3:4`. Edit `config.yaml` any time — see [`skills/know-your-limits/config.example.yaml`](skills/know-your-limits/config.example.yaml) for all options, including per-trigger arena mode and participant depth.
 
 ## Budget — escalation is a scarce tool, not the default
 

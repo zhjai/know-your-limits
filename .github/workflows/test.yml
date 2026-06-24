@@ -8,6 +8,8 @@ jobs:
       - uses: actions/setup-python@v5
         with: { python-version: "3.11" }
       - name: compile
-        run: python -m py_compile integrations/hooks/kyl_hook.py tests/test_hook.py
+        run: python -m py_compile skills/know-your-limits/kyl_hook.py skills/know-your-limits/kyl_run.py tests/test_hook.py tests/test_kyl_run.py
       - name: hook self-tests
         run: python tests/test_hook.py
+      - name: launcher self-tests
+        run: python tests/test_kyl_run.py
