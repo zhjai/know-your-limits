@@ -124,6 +124,25 @@ When calling a single senior, model choice follows task nature: **GPT/Codex for 
 
 Override per-trigger in config under `escalation.mode_preferences`. The default senior model for each trigger can be overridden at init or in config.
 
+### Per-step objective self-check (a record, not a decision)
+Every turn, restate one line and **write the level to `ledger['task_class']`** so it stays salient and the
+hook can cross-check it (set `KYL_REMIND_EVERY=1` to be reminded every turn):
+
+```
+kyl: L<n> | plan_reviewed=<y/n> | this step: <reversible | IRREVERSIBLE>
+```
+
+Then run a tiny **objective** checklist on the step — checkable facts, never "do I feel unsure?":
+- Does this action change **schema / data / deploy / auth / dependencies**? → IRREVERSIBLE_GUARD.
+- Am I running an **unread executable/script** that touches a high-stakes target? → escalate.
+- Am I about to **declare DONE on an L2/L3** task? → PRE_DONE_REVIEW (gated, below).
+
+Crucial: this self-check is a **record the gate/hook verify, not a permission you grant yourself.** A
+confident-wrong worker will mis-classify as safe — so the hook independently flags when your claimed
+level contradicts observed stall/scope/irreversible signals, and the real *enforcement* lives in the hook
+(IRREVERSIBLE by command) and `kyl-run` (plan + done gates). Restating the level fights forgetting; it
+does not by itself make anything safe.
+
 **Before invoking the senior, read `escalation.notes` and honor it.** It is free-form provider guidance the user wrote at init (endpoint quirks, CLI fallbacks, channel preferences) — e.g. "codex uses the xxx endpoint; if codex is unavailable, fall back to the codex-official CLI (Plus channel)." Apply it flexibly: if the configured senior CLI is unavailable (command missing / endpoint down / model-unavailable), follow the note's fallback before degrading to the human tier in `fallback_order`.
 
 ### 3. Budget the senior calls (the whole point is saving money)
@@ -250,6 +269,10 @@ attempts, rationalizes "this attempt was different", loses track across compacti
 ```bash
 kyl-run "build the SFT+GRPO+eval pipeline"     # classify → senior plan-review → execute only if approved
 # blocked/revise → worker never starts; surfaced to the human
+
+# PRE_DONE_REVIEW as a gated action — "done" needs a senior-approved token bound to the current diff:
+kyl-run complete --class L2 --diff-hash "$(git diff | sha1sum | cut -c1-12)" --tests "pytest -q"
+# not approved → ⛔ NOT done; the worker must not declare the task complete
 ```
 
 Use **kyl-run for any task on a model too weak to obey the nudge** — which is most models worth tiering.

@@ -105,5 +105,44 @@ class Gate(unittest.TestCase):
         self.assertEqual(rec["task_class"], "L2")
 
 
+class CompletionGate(unittest.TestCase):
+    def setUp(self):
+        self.ctl = tempfile.mkdtemp()
+
+    def _req(self, cls="L2", diff="abc"):
+        return {"task_class": cls, "diff_hash": diff, "tests_run": ["pytest"]}
+
+    def test_l2_done_requires_senior_approval(self):
+        # senior blocks → not done, no token, verify_done False
+        r = kyl_run.gate_completion(self._req(), senior_review=senior("blocked"),
+                                    control_dir=self.ctl, goal_id="g")
+        self.assertEqual(r["status"], "blocked")
+        self.assertNotIn("token", r)
+        self.assertFalse(kyl_run.verify_done("abc", control_dir=self.ctl, goal_id="g"))
+
+    def test_l2_done_issues_token_bound_to_diff(self):
+        r = kyl_run.gate_completion(self._req(diff="abc"), senior_review=senior("approve"),
+                                    control_dir=self.ctl, goal_id="g")
+        self.assertEqual(r["status"], "done")
+        self.assertTrue(r["token"])
+        self.assertTrue(kyl_run.verify_done("abc", control_dir=self.ctl, goal_id="g"))
+        # stale diff (worker edited after approval) → token no longer valid
+        self.assertFalse(kyl_run.verify_done("DIFFERENT", control_dir=self.ctl, goal_id="g"))
+
+    def test_l1_done_needs_no_senior(self):
+        called = {"n": 0}
+        def sr(req):
+            called["n"] += 1; return {"status": "approve"}
+        r = kyl_run.gate_completion(self._req(cls="L1"), senior_review=sr,
+                                    control_dir=self.ctl, goal_id="g")
+        self.assertEqual(r["status"], "done")
+        self.assertFalse(r["gated"])
+        self.assertEqual(called["n"], 0)
+        self.assertTrue(kyl_run.verify_done("anything", control_dir=self.ctl, goal_id="g"))
+
+    def test_verify_done_false_when_no_record(self):
+        self.assertFalse(kyl_run.verify_done("abc", control_dir=self.ctl, goal_id="missing"))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

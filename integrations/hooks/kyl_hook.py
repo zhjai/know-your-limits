@@ -46,6 +46,7 @@ STALL_N      = _envint("KYL_STALL_N", 2)
 OSC_M        = _envint("KYL_OSC_M", 3)
 SCOPE_K      = _envint("KYL_SCOPE_K", 2)
 ACTIONS_A    = _envint("KYL_ACTIONS_A", 40)
+REMIND_EVERY = _envint("KYL_REMIND_EVERY", 20)  # restate-level reminder cadence; set 1 for every turn
 WORKER_TIER  = os.environ.get("KYL_WORKER_TIER", "").lower()  # "cheap" or empty
 TASK_CLASS_ENV = os.environ.get("KYL_TASK_CLASS", "").upper().strip()  # L0/L1/L2/L3 — declares class without the model
 
@@ -280,14 +281,21 @@ def main():
                 f"CHECKPOINT_DEBT: {L['since_pass']} actions with no passing check. "
                 "Do a senior audit (quick_panel): are you still on the right track, or drifting?")
 
-        # Periodic reminder for cheap workers (every 20 actions). Specific, not generic — long-running
-        # models forget the *rule*, not just that they're cheap. Restate the class and the escalation triggers.
-        if WORKER_TIER == "cheap" and L["actions"] % 20 == 0:
+        # Per-turn level restatement (cadence KYL_REMIND_EVERY; set 1 for every turn). Long-running models
+        # forget the *level*, so make them re-state it. This is a RECORD, not a decision: the worker writes
+        # its claimed class to ledger['task_class'], and we cross-check it against observed signals below.
+        if WORKER_TIER == "cheap" and L["actions"] % REMIND_EVERY == 0:
             cls = TASK_CLASS_ENV or L.get("task_class", "") or "unclassified"
-            nudges.append(
-                f"[know-your-limits reminder — you are a cheap worker, task={cls}. Escalate to agent-arena: "
-                "before any IRREVERSIBLE action, before declaring DONE on L2/L3, and when stuck (same error 2×). "
-                "Don't push through hard decisions alone.]")
+            msg = (f"[know-your-limits reminder — restate the current level (L0–L3; now: {cls}) and whether "
+                   "THIS step is reversible, and write the level to ledger['task_class']. Escalate via "
+                   "agent-arena before any IRREVERSIBLE action, before declaring DONE on L2/L3, or when stuck.]")
+            # Verify-flavor: a claimed-small level that contradicts observed escalation signals is not credible.
+            fired = L.get("fired", [])
+            if cls in ("L0", "L1") and any(
+                    k.startswith(("stall:", "osc:", "irrev:")) or k in ("scope", "debt") for k in fired):
+                msg += (" ⚠️ Your claimed level looks too LOW given observed stall/oscillation/scope/irreversible "
+                        "signals — reclassify upward and escalate.")
+            nudges.append(msg)
 
     elif event == "PreCompact":
         # counters survive in the on-disk ledger; remind the worker not to lose escalation state

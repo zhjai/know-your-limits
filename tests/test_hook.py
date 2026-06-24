@@ -331,6 +331,24 @@ class KylHook(unittest.TestCase):
             _, c = run(ev, led, env)
             self.assertNotIn("IRREVERSIBLE_GUARD", c, f"{cmd!r} is safe, should NOT trip")
 
+    def test_remind_every_one_fires_each_turn(self):
+        # KYL_REMIND_EVERY=1 → restate-level reminder every action (user's "remind every turn")
+        ledger = os.path.join(tempfile.mkdtemp(), "l.json")
+        env = {"KYL_WORKER_TIER": "cheap", "KYL_REMIND_EVERY": "1"}
+        ok = {"hook_event_name": "PostToolUse", "tool_exit_code": 0, "tool_response": "working"}
+        _, c1 = run(ok, ledger, env); _, c2 = run(ok, ledger, env)
+        self.assertIn("restate the current level", c1)
+        self.assertIn("restate the current level", c2)
+
+    def test_claimed_low_level_contradicted_by_signals(self):
+        # worker claims L1 but a STALL has fired → reminder must flag "reclassify upward"
+        ledger = os.path.join(tempfile.mkdtemp(), "l.json")
+        env = {"KYL_WORKER_TIER": "cheap", "KYL_TASK_CLASS": "L1", "KYL_REMIND_EVERY": "1"}
+        fail = {"hook_event_name": "PostToolUse", "tool_exit_code": 1, "tool_response": "Error: boom"}
+        run(fail, ledger, env)              # 1st failure
+        _, c = run(fail, ledger, env)       # 2nd identical → stall fires; same action triggers reminder
+        self.assertIn("too LOW", c)         # contradiction flagged
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

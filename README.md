@@ -107,6 +107,8 @@ kyl-run "build the SFT+GRPO+eval pipeline"
 
 The approval record is written under `control/` (the launcher owns it; the worker can't forge it). The tested guarantee: **for an L2/L3 task, the worker is never run unless the plan passed review** — the enforcement a nudge cannot give. Use `kyl-run` for any model too weak to obey the nudge (most models worth tiering); the hook then degrades to drift detection. If a model is *also* too weak to execute a senior-approved plan, don't tier it — run the work on the senior directly (see "right-size first").
 
+**"Done" is also gated.** `kyl-run complete --class L2 --diff-hash <h>` makes PRE_DONE_REVIEW a real gate: it issues a senior-approved completion token *bound to the current diff*, and rejects any L2/L3 "done" without one (a stale diff invalidates the token). **Against forgetting**, set `KYL_REMIND_EVERY=1` so the hook makes the worker restate its level (L0–L3) every turn and writes it to the ledger, where the hook cross-checks the claim against observed stall/scope/irreversible signals and flags an under-classification. The restatement fights forgetting; the gates do the enforcing.
+
 ## Companion skills — what to install alongside
 
 `know-your-limits` deliberately does not reimplement cross-model calls, async human escalation, or the authority over "done". It composes with separate skills:

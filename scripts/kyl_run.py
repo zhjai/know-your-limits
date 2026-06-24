@@ -21,7 +21,11 @@ the worker never produces it. The invariant this guarantees, and tests:
 The senior reviewer and the worker executor are injected as callables so the gate
 logic is unit-testable without real CLIs; `main()` wires them to real commands.
 """
-import json, os, re, sys, pathlib
+import json, os, re, sys, pathlib, hashlib
+
+
+def _fingerprint(text):
+    return hashlib.sha1(str(text).encode("utf-8", "replace")).hexdigest()[:12]
 
 # --- 1. Deterministic classification (UNKNOWN -> L2) -----------------------------
 # Rationale (from the arena): a false positive costs one senior planning call; a false
@@ -97,6 +101,47 @@ def run(task, *, senior_review, worker_exec, task_class=None, plan_path=None,
             "gated": True, "executed": False, "verdict": verdict}
 
 
+# --- 3b. Completion gate — PRE_DONE_REVIEW as a gated action ----------------------
+# "Done" must be a request the senior approves, not free prose the worker asserts. The token is bound
+# to the diff_hash so it can't be reused after the worker keeps editing.
+def gate_completion(req, *, senior_review, control_dir="control/kyl", goal_id="goal"):
+    """req = {task_class, diff_hash, tests_run, ...}. Returns {status: done|blocked, token?, ...}.
+    GUARANTEE: an L2/L3 completion is never 'done' unless senior_review approved THIS diff_hash."""
+    cls = str(req.get("task_class", "")).upper()
+    diff = str(req.get("diff_hash", ""))
+    rec = {"goal_id": goal_id, "type": "COMPLETION_REQUEST", "task_class": cls,
+           "diff_hash": diff, "tests_run": req.get("tests_run", [])}
+    if cls in ("L0", "L1"):
+        rec["status"] = "done"
+        _write_authority(control_dir, goal_id + ".done", rec)
+        return {"status": "done", "gated": False}
+    verdict = senior_review(req) or {"status": "blocked", "diagnosis": "no senior verdict"}
+    rec["verdict"] = verdict
+    if str(verdict.get("status", "")).lower() == "approve" and diff:
+        token = "complete-" + _fingerprint(goal_id + diff)
+        rec.update(status="done", token=token, valid_for_diff_hash=diff)
+        _write_authority(control_dir, goal_id + ".done", rec)
+        return {"status": "done", "gated": True, "token": token, "valid_for_diff_hash": diff}
+    rec["status"] = "blocked"
+    _write_authority(control_dir, goal_id + ".done", rec)
+    return {"status": "blocked", "gated": True, "verdict": verdict}
+
+
+def verify_done(diff_hash, *, control_dir="control/kyl", goal_id="goal"):
+    """True only if a valid completion exists for THIS diff_hash: L0/L1 (no gate) or an approved token
+    bound to diff_hash. A stale diff (worker edited after approval) or a missing token → False."""
+    import pathlib
+    try:
+        rec = json.loads((pathlib.Path(control_dir) / f"{goal_id}.done.json").read_text())
+    except Exception:
+        return False
+    if rec.get("status") != "done":
+        return False
+    if str(rec.get("task_class", "")).upper() in ("L0", "L1"):
+        return True
+    return bool(rec.get("token")) and rec.get("valid_for_diff_hash") == str(diff_hash)
+
+
 # --- 4. CLI wiring (real senior + worker commands) -------------------------------
 def _real_senior_review(plan_text):
     """Send the plan to a senior via `claude -p` (implementation_plan_review).
@@ -141,8 +186,24 @@ def _real_worker_exec(task, plan):
 def main(argv=None):
     argv = argv if argv is not None else sys.argv[1:]
     if not argv:
-        print("usage: kyl_run.py \"<task>\" [--class L2] [--plan plan.md] [--goal <id>]", file=sys.stderr)
+        print('usage:\n  kyl_run.py "<task>" [--class L2] [--plan plan.md] [--goal <id>]   # plan gate + execute\n'
+              '  kyl_run.py complete --class L2 --diff-hash <h> [--tests "..."] [--goal <id>]  # done gate',
+              file=sys.stderr)
         return 2
+
+    # `complete` subcommand: PRE_DONE_REVIEW gate — "done" must be senior-approved for L2/L3
+    if argv[0] == "complete":
+        opts = {argv[i]: argv[i + 1] for i in range(1, len(argv) - 1, 2)}
+        req = {"task_class": opts.get("--class", os.environ.get("KYL_TASK_CLASS", "L2")),
+               "diff_hash": opts.get("--diff-hash", ""),
+               "tests_run": [t for t in opts.get("--tests", "").split(",") if t]}
+        res = gate_completion(req, senior_review=_real_senior_review, goal_id=opts.get("--goal", "goal"))
+        print(json.dumps(res, ensure_ascii=False, indent=2))
+        if res.get("status") != "done":
+            print("\n⛔ NOT done — PRE_DONE_REVIEW did not pass. Do not declare the task complete.", file=sys.stderr)
+            return 1
+        return 0
+
     task = argv[0]
     opts = {argv[i]: argv[i + 1] for i in range(1, len(argv) - 1, 2)}
     res = run(task, senior_review=_real_senior_review, worker_exec=_real_worker_exec,
