@@ -142,21 +142,87 @@ def verify_done(diff_hash, *, control_dir="control/kyl", goal_id="goal"):
     return bool(rec.get("token")) and rec.get("valid_for_diff_hash") == str(diff_hash)
 
 
-# --- 4. CLI wiring (real senior + worker commands) -------------------------------
-def _real_senior_review(plan_text):
-    """Send the plan to a senior via `claude -p` (implementation_plan_review).
-    Replace/extend to route through agent-arena for heterogeneity."""
-    import subprocess
-    prompt = ("You are a senior reviewer. Review this implementation plan (agent-arena "
-              "implementation_plan_review). Reply with a single line `STATUS: approve|revise|blocked` "
-              "followed by <=3 concrete next_actions and <=2 risks.\n\nPLAN:\n" + plan_text)
-    try:
-        out = subprocess.run(["claude", "-p", prompt, "--allowedTools", "", "--max-turns", "2"],
-                             capture_output=True, text=True, timeout=600).stdout
-    except Exception as e:
-        return {"status": "blocked", "diagnosis": f"senior call failed: {e}"}
+# --- 4. CLI wiring — heterogeneous agent-arena review (Claude × Codex) ------------
+def _parse_status(out):
+    """Pull `STATUS: approve|revise|blocked` from a reviewer's output. Ambiguous → revise (toward review)."""
+    if not out:
+        return None
     m = re.search(r"STATUS:\s*(approve|revise|blocked)", out, re.I)
-    return {"status": (m.group(1).lower() if m else "revise"), "raw": out[-2000:]}
+    return m.group(1).lower() if m else "revise"
+
+
+def _combine_votes(results):
+    """Combine independent reviewer verdicts FAIL-CLOSED (pure, testable):
+      - no reviewer available        → blocked (can't review = can't pass)
+      - any reviewer says blocked     → blocked
+      - ALL available say approve     → approve
+      - otherwise (any revise/split)  → revise
+    `degraded` is True when fewer than 2 reviewers actually voted (heterogeneity reduced)."""
+    votes = [v for v in results.values() if v]
+    if not votes:
+        return {"status": "blocked", "degraded": True, "reviewers": results,
+                "reason": "no senior reviewer available — cannot approve"}
+    if any(v == "blocked" for v in votes):
+        status = "blocked"
+    elif all(v == "approve" for v in votes):
+        status = "approve"
+    else:
+        status = "revise"
+    return {"status": status, "degraded": len(votes) < 2, "reviewers": results}
+
+
+def _run_cli(args, prompt, timeout=600):
+    import subprocess
+    try:
+        p = subprocess.run(args + [prompt], capture_output=True, text=True, timeout=timeout)
+        return (p.stdout or "") + (p.stderr or "")
+    except FileNotFoundError:
+        return None
+    except Exception as e:
+        return f"__ERROR__ {e}"
+
+
+def _arena_review(material, mode):
+    """Real agent-arena mechanism for a gate: Claude and Codex review INDEPENDENTLY and in PARALLEL,
+    then combine fail-closed. Degrades honestly to solo (disclosed) if a counterpart is unavailable."""
+    import shutil
+    from concurrent.futures import ThreadPoolExecutor
+    prompt = (f"You are a senior reviewer (agent-arena {mode}). Independently review the material below. "
+              "Your FIRST line must be exactly `STATUS: approve|revise|blocked`, then <=3 next_actions and "
+              "<=2 risks. Approve ONLY if it is safe to proceed.\n\n" + (material or ""))
+    jobs = {}
+    if shutil.which("claude"):
+        jobs["claude"] = ["claude", "-p", "--allowedTools", "", "--max-turns", "2"]
+    if shutil.which("codex"):
+        jobs["codex"] = ["codex", "exec", "--skip-git-repo-check"]
+    results = {}
+    if jobs:
+        with ThreadPoolExecutor(max_workers=len(jobs)) as ex:
+            futs = {name: ex.submit(_run_cli, args, prompt) for name, args in jobs.items()}
+            for name, fut in futs.items():
+                results[name] = _parse_status(fut.result())
+    return _combine_votes(results)
+
+
+def _real_senior_review(plan_text):
+    """PLAN_REVIEW gate → heterogeneous implementation_plan_review."""
+    return _arena_review("PLAN:\n" + str(plan_text), "implementation_plan_review")
+
+
+def _git_diff(timeout=30):
+    import subprocess
+    try:
+        return subprocess.run(["git", "diff", "HEAD"], capture_output=True, text=True, timeout=timeout).stdout
+    except Exception:
+        return ""
+
+
+def _real_completion_review(req):
+    """PRE_DONE_REVIEW gate → heterogeneous code_review_arena over the ACTUAL diff (not just a hash)."""
+    diff = _git_diff()[:20000]  # cap; the real change is what the senior must see
+    packet = (f"task_class: {req.get('task_class')}\ntests_run: {req.get('tests_run')}\n"
+              f"diff_hash: {req.get('diff_hash')}\n\nDIFF (git diff HEAD):\n{diff or '(no diff captured)'}")
+    return _arena_review(packet, "code_review_arena")
 
 
 # Empirically, weak workers obey a rule stated as a top-level/system constraint but ignore the same
@@ -197,7 +263,7 @@ def main(argv=None):
         req = {"task_class": opts.get("--class", os.environ.get("KYL_TASK_CLASS", "L2")),
                "diff_hash": opts.get("--diff-hash", ""),
                "tests_run": [t for t in opts.get("--tests", "").split(",") if t]}
-        res = gate_completion(req, senior_review=_real_senior_review, goal_id=opts.get("--goal", "goal"))
+        res = gate_completion(req, senior_review=_real_completion_review, goal_id=opts.get("--goal", "goal"))
         print(json.dumps(res, ensure_ascii=False, indent=2))
         if res.get("status") != "done":
             print("\n⛔ NOT done — PRE_DONE_REVIEW did not pass. Do not declare the task complete.", file=sys.stderr)

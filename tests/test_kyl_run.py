@@ -144,5 +144,32 @@ class CompletionGate(unittest.TestCase):
         self.assertFalse(kyl_run.verify_done("abc", control_dir=self.ctl, goal_id="missing"))
 
 
+class ArenaCombine(unittest.TestCase):
+    """The heterogeneous vote-combination is fail-closed."""
+    def test_both_approve(self):
+        self.assertEqual(kyl_run._combine_votes({"claude": "approve", "codex": "approve"})["status"], "approve")
+
+    def test_any_blocked_blocks(self):
+        self.assertEqual(kyl_run._combine_votes({"claude": "approve", "codex": "blocked"})["status"], "blocked")
+
+    def test_split_is_revise(self):
+        self.assertEqual(kyl_run._combine_votes({"claude": "approve", "codex": "revise"})["status"], "revise")
+
+    def test_no_reviewer_blocks(self):
+        r = kyl_run._combine_votes({})
+        self.assertEqual(r["status"], "blocked")
+        self.assertTrue(r["degraded"])
+
+    def test_solo_approve_is_degraded(self):
+        r = kyl_run._combine_votes({"claude": "approve"})
+        self.assertEqual(r["status"], "approve")
+        self.assertTrue(r["degraded"])         # heterogeneity reduced — disclosed
+
+    def test_parse_status_ambiguous_is_revise(self):
+        self.assertEqual(kyl_run._parse_status("hmm looks fine to me"), "revise")
+        self.assertEqual(kyl_run._parse_status("STATUS: approve\n..."), "approve")
+        self.assertIsNone(kyl_run._parse_status(None))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

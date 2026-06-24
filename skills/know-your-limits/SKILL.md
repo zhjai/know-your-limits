@@ -262,9 +262,12 @@ attempts, rationalizes "this attempt was different", loses track across compacti
    compliance compounds toward zero.
 3. **The guarded launcher** [`scripts/kyl_run.py`](scripts/kyl_run.py) (`kyl-run`) — **the only layer
    that actually enforces.** It moves the gate *out of the worker*: classifies the task (unknown → L2),
-   runs the senior PLAN_REVIEW as a **precondition**, and launches the write-capable worker phase
-   **only if the senior approves**. Authority (the approval record) is written under `control/`, not by
-   the worker. Guarantee (tested): for an L2/L3 task the worker is never run unless the plan passed.
+   runs the PLAN_REVIEW (and the done-review) as a **precondition**, and launches the write-capable
+   worker phase **only if approved**. Both gates run a **real heterogeneous agent-arena review — Claude
+   and Codex independently, in parallel, combined fail-closed** (any "blocked" blocks; approve needs all
+   available reviewers; no reviewer → blocked; solo is allowed but flagged `degraded`). Authority (the
+   approval record) is written under `control/`, not by the worker. Guarantee (tested): for an L2/L3
+   task the worker is never run unless the plan passed.
 
 ```bash
 kyl-run "build the SFT+GRPO+eval pipeline"     # classify → senior plan-review → execute only if approved
