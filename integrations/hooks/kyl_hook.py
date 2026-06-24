@@ -9,12 +9,15 @@ worker to escalate via agent-arena. It NEVER makes the senior call, never blocks
 task is done, and exits 0 on bad input.
 
 Tripwires it can observe deterministically (no model self-report needed):
-  - STALL_RESCUE     : same error fingerprint survives N (default 2) failing tool results
-  - OSCILLATION      : same file materially edited M (default 3) times with no passing check between
-  - SCOPE_DRIFT      : >K (default 2) distinct modules touched before any passing check
-  - CHECKPOINT_DEBT  : >A (default 40) tool actions with no passing check observed
-The MANDATORY tripwires (PLAN_REVIEW at start, IRREVERSIBLE_GUARD, PRE_DONE_REVIEW) are the skill's
-job — they don't depend on counting and shouldn't be faked by a hook.
+  - STALL_RESCUE      : same error fingerprint survives N (default 2) failing tool results
+  - OSCILLATION       : same file materially edited M (default 3) times with no passing check between
+  - SCOPE_DRIFT       : >K (default 2) distinct modules touched before any passing check
+  - CHECKPOINT_DEBT   : >A (default 40) tool actions with no passing check observed
+  - IRREVERSIBLE_GUARD: a hard-to-reverse / wide-blast COMMAND seen at PreToolUse (rm -rf, git push
+                        --force, migrate, drop table, deploy, pkg install, …) — fired from the command
+                        itself so it survives the model forgetting (cheap workers only, deduped)
+PLAN_REVIEW (at start) and PRE_DONE_REVIEW still depend on intent the hook can't see — the skill owns
+those, and kyl-run (the guarded launcher) is what actually enforces PLAN_REVIEW.
 
 Output (valid on Claude Code AND Codex): a single line of JSON
   {"hookSpecificOutput": {"hookEventName": "<Event>", "additionalContext": "<nudge>"}}
@@ -49,6 +52,17 @@ TASK_CLASS_ENV = os.environ.get("KYL_TASK_CLASS", "").upper().strip()  # L0/L1/L
 # Tools that actually MUTATE a file — only these count toward oscillation/scope. A Read/Grep of the
 # same file 3x must not look like thrashing.
 _MUTATING_TOOLS = {"edit", "write", "notebookedit", "multiedit", "create", "update", "apply_patch", "str_replace"}
+
+# IRREVERSIBLE / wide-blast actions, detected from the command itself (PreToolUse) so the guard fires
+# on an OBSERVED event, not on the model remembering. This is the mandatory tripwire that long-running
+# models forget: matching here makes it memory-independent, like STALL/OSCILLATION.
+_IRREVERSIBLE = re.compile(
+    r"\brm\s+-[rf]|\brm\s+-[a-z]*[rf]|\bgit\s+push\b|--force\b|-f\b\s*$|\bgit\s+reset\s+--hard|"
+    r"\bgit\s+clean\b|\bdrop\s+(table|database|schema)\b|\btruncate\b|\bdelete\s+from\b|\balter\s+table\b|"
+    r"\bmigrat\w*\b|\balembic\b|\bflyway\b|\bdeploy\b|\bkubectl\s+(apply|delete)\b|\bterraform\s+(apply|destroy)\b|"
+    r"\bdocker\s+push\b|\bhelm\s+(install|upgrade)\b|\bsystemctl\s+(stop|restart|disable)\b|\bdd\s+if=|\bmkfs\b|"
+    r"\b(pip|npm|yarn|pnpm|cargo|apt|brew)\s+(install|add|remove|uninstall)\b|\bchmod\s+-R\b|\bchown\s+-R\b",
+    re.I)
 
 _FAIL = re.compile(r"\btraceback\b|\berror:|\bfatal\b|command failed|command exited with [1-9]|exit (?:code |status )?[1-9]|non-zero (?:exit|status)|returned non-zero|assertion(?:error)?|\bFAIL(?:ED|URE)?\b|segmentation fault|\bsegfault\b|core dumped|\bKilled\b|\bpanic\b|\bOOM\b|out of memory", re.I)
 _OK   = re.compile(r"\b0 errors?\b|\bno errors?\b|\ball (?:tests? )?pass|\bsuccess\b|\bPASSED\b|\bok\b\s*$", re.I)
@@ -202,6 +216,20 @@ def main():
                     "irreversible, escalate to agent-arena mode=implementation_plan_review BEFORE continuing, then set "
                     "ledger['task_class'] and ledger['plan_reviewed']. (Set KYL_TASK_CLASS to declare this up front.)")
 
+        # IRREVERSIBLE_GUARD — fire on the COMMAND, not on the model remembering. This is the mandatory
+        # tripwire long-running workers forget; detecting it from the tool input makes it memory-independent.
+        if WORKER_TIER == "cheap":
+            ti = d.get("tool_input") or {}
+            cmd = " ".join(str(ti.get(k, "")) for k in ("command", "cmd", "script") if isinstance(ti.get(k), str))
+            if cmd and _IRREVERSIBLE.search(cmd):
+                fp = "irrev:" + _fingerprint(cmd)
+                if fp not in L.get("fired", []):
+                    L.setdefault("fired", []).append(fp)
+                    nudges.append(
+                        "⚠️ IRREVERSIBLE_GUARD: about to run a hard-to-reverse / wide-blast command "
+                        f"(`{cmd.strip()[:80]}`). STOP and escalate to agent-arena for a senior review BEFORE "
+                        "running it. This fires on the command itself — don't rely on remembering to escalate.")
+
     elif event == "PostToolUse":
         L["actions"] = L.get("actions", 0) + 1
         out = _tool_text(d)
@@ -252,10 +280,14 @@ def main():
                 f"CHECKPOINT_DEBT: {L['since_pass']} actions with no passing check. "
                 "Do a senior audit (quick_panel): are you still on the right track, or drifting?")
 
-        # Periodic reminder for cheap workers (every 20 actions, light nudge)
+        # Periodic reminder for cheap workers (every 20 actions). Specific, not generic — long-running
+        # models forget the *rule*, not just that they're cheap. Restate the class and the escalation triggers.
         if WORKER_TIER == "cheap" and L["actions"] % 20 == 0:
+            cls = TASK_CLASS_ENV or L.get("task_class", "") or "unclassified"
             nudges.append(
-                "[Reminder: You are a cheap worker. Use know-your-limits skill to escalate hard decisions to a senior model.]")
+                f"[know-your-limits reminder — you are a cheap worker, task={cls}. Escalate to agent-arena: "
+                "before any IRREVERSIBLE action, before declaring DONE on L2/L3, and when stuck (same error 2×). "
+                "Don't push through hard decisions alone.]")
 
     elif event == "PreCompact":
         # counters survive in the on-disk ledger; remind the worker not to lose escalation state

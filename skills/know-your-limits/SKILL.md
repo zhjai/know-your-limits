@@ -286,8 +286,18 @@ The hook reads `KYL_WORKER_TIER` and:
    `plan_reviewed`; if the task is **unclassified** (the weak model never classified — common with very
    small models) it fires a one-time nudge to classify + plan-review before editing. (Note: the hook
    never blocks; it emits context. Full enforcement comes in v0.2.0's guarded launcher.)
-2. **Periodic reminder** (every 20 actions): light nudge to use know-your-limits.
-3. **PreCompact reminder**: tells the model "you are cheap" before compaction, reducing forgetting.
+2. **IRREVERSIBLE_GUARD by command** (PreToolUse): detects a hard-to-reverse / wide-blast command
+   (`rm -rf`, `git push --force`, `migrate`, `drop table`, `deploy`, package install, …) from the tool
+   input and nudges to escalate *before* it runs — **fired from the command, so it survives the model
+   forgetting to classify or escalate** (the exact long-run failure mode). Deduped per command.
+3. **Periodic reminder** (every 20 actions): restates the task class + the escalation triggers (not just
+   "you are cheap") — long-running models forget the *rule*, not just their tier.
+4. **PreCompact reminder**: tells the model "you are cheap" before compaction, reducing forgetting.
+
+Even so, these are **nudges** — a model that ignores them still slips through. For the actions that must
+not happen unreviewed, gate with **kyl-run** (PLAN_REVIEW) and, if your host supports a *blocking*
+PreToolUse hook, deny the irreversible command until a review token exists. Nudges raise the odds;
+only a gate guarantees.
 
 **Declare the task class so PLAN_REVIEW fires reliably on weak models.** A small model often won't invoke
 the skill to classify, so the hook wouldn't know it's L2/L3. Declare it **deterministically at launch**

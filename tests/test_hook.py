@@ -208,17 +208,17 @@ class KylHook(unittest.TestCase):
 
         # 20th action: reminder fires
         _, c20 = run(ok, ledger, env)
-        self.assertIn("Reminder: You are a cheap worker", c20)
+        self.assertIn("know-your-limits reminder", c20)
 
         # 21-39: no reminder
         for _ in range(19):
             _, c = run(ok, ledger, env)
             if _ < 18:  # actions 21-38
-                self.assertNotIn("Reminder: You are a cheap worker", c)
+                self.assertNotIn("know-your-limits reminder", c)
 
         # 40th: reminder again
         _, c40 = run(ok, ledger, env)
-        self.assertIn("Reminder: You are a cheap worker", c40)
+        self.assertIn("know-your-limits reminder", c40)
 
     def test_mandatory_plan_review_for_cheap_l2(self):
         # PreToolUse: cheap worker on L2 task editing without plan review → forced nudge
@@ -301,6 +301,35 @@ class KylHook(unittest.TestCase):
         env = {"KYL_WORKER_TIER": "cheap", "KYL_TASK_CLASS": "L1"}
         _, c = run({"hook_event_name": "PreToolUse", "tool_name": "Edit"}, ledger, env)
         self.assertNotIn("PLAN_REVIEW", c)
+
+    def test_irreversible_guard_fires_on_dangerous_command(self):
+        # The guard must fire on the COMMAND (memory-independent), before it runs
+        ledger = os.path.join(tempfile.mkdtemp(), "l.json")
+        env = {"KYL_WORKER_TIER": "cheap"}
+        for cmd in ["rm -rf build/", "git push origin main --force", "alembic upgrade head",
+                    "kubectl apply -f deploy.yaml", "pip install somenewdep", "DROP TABLE users"]:
+            led = os.path.join(tempfile.mkdtemp(), "l.json")
+            ev = {"hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": {"command": cmd}}
+            _, c = run(ev, led, env)
+            self.assertIn("IRREVERSIBLE_GUARD", c, f"{cmd!r} should trip the guard")
+
+    def test_irreversible_guard_dedupes(self):
+        ledger = os.path.join(tempfile.mkdtemp(), "l.json")
+        env = {"KYL_WORKER_TIER": "cheap"}
+        ev = {"hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": {"command": "git push --force"}}
+        _, c1 = run(ev, ledger, env)
+        self.assertIn("IRREVERSIBLE_GUARD", c1)
+        _, c2 = run(ev, ledger, env)
+        self.assertNotIn("IRREVERSIBLE_GUARD", c2)            # same command → don't spam
+
+    def test_safe_command_no_guard(self):
+        ledger = os.path.join(tempfile.mkdtemp(), "l.json")
+        env = {"KYL_WORKER_TIER": "cheap"}
+        for cmd in ["ls -la", "python -m pytest", "git status", "cat README.md"]:
+            led = os.path.join(tempfile.mkdtemp(), "l.json")
+            ev = {"hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_input": {"command": cmd}}
+            _, c = run(ev, led, env)
+            self.assertNotIn("IRREVERSIBLE_GUARD", c, f"{cmd!r} is safe, should NOT trip")
 
 
 if __name__ == "__main__":
